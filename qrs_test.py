@@ -7,21 +7,22 @@ Created on Fri Jan 11 15:30:03 2019
 """
 
 # Importo TensorFlow como tf
-import tensorflow as tf
+#import tensorflow as tf
 # Importo keras
-import keras as kr
+#import keras as kr
 
 # Librerias auxiliares
 import numpy as np
 import matplotlib.pyplot as plt
-from pandas import DataFrame
-from IPython.display import HTML
+#from pandas import DataFrame
+#from IPython.display import HTML
 import os
 from glob import glob
 import h5py
 import wfdb as wf
-from scipy import signal as ss
+from scipy import signal as sig
 import argparse as ap
+from statsmodels.robust.scale import mad
 
 parser = ap.ArgumentParser(description='Prueba para entrenar un detector de QRS mediante técnicas de deep learning')
 parser.add_argument( 'db_path', 
@@ -82,6 +83,9 @@ def gen_interest_ranges( start_end, references, width):
 
         half_win = int(np.round(width/2))
 
+        references = references[np.logical_and(references >= width, references <= (start_end[1] - width ))]
+        nrefs = len(references)
+        
         this_start = start_end[0]
         this_end = references[0] - half_win - 1
         st_idx = 0
@@ -89,29 +93,30 @@ def gen_interest_ranges( start_end, references, width):
         QRS_ranges = []
         no_QRS_ranges = []
         
-        while st_idx < nrefs:
-
-            if this_end - width > this_start:
+#        while st_idx < nrefs:
+#
+#            if this_end - width > this_start:
+#                
+#                no_QRS_ranges += [ ( this_start , this_end )  ]
+#
+#                this_qstart = references[st_idx] - half_win
+#                this_qend = this_qstart + width
+#                QRS_ranges += [ ( this_qstart, this_qend )  ]
+#                
+#                break
+#            
+#            else:
+#
+# lo descarto porque no me interesa que pudiera ser más corto que  width               
+#                this_qstart = np.max( (0, references[st_idx] - half_win) )
+#                this_qend = this_qstart + width
+#                QRS_ranges += [ ( this_qstart, this_qend )  ]
                 
-                no_QRS_ranges += [ ( this_start , this_end )  ]
-
-                this_qstart = references[st_idx] - half_win
-                this_qend = this_qstart + width
-                QRS_ranges += [ ( this_qstart, this_qend )  ]
-                
-                break
-            
-            else:
-
-                this_qstart = np.max( (0, references[st_idx] - half_win) )
-                this_qend = this_qstart + width
-                QRS_ranges += [ ( this_qstart, this_qend )  ]
-                
-                this_start = this_end + width + 2
-                this_end = references[st_idx+1] - half_win - 1
-                st_idx += 1
+#                this_start = this_end + width + 2
+#                this_end = references[st_idx+1] - half_win - 1
+#                st_idx += 1
         
-        for ii in np.arange(st_idx + 1, nrefs):
+        for ii in np.arange(st_idx, nrefs):
             
             this_start = this_end + width + 2
             this_end = references[ii] - half_win - 1
@@ -121,24 +126,27 @@ def gen_interest_ranges( start_end, references, width):
                 no_QRS_ranges += [ ( this_start , this_end )  ]
 
             this_qstart = references[ii] - half_win
-            this_qend = np.min( ( start_end[1], this_qstart + width) )
+# con numpy clipea automáticamente
+#            this_qend = np.min( ( start_end[1], this_qstart + width) )
+            this_qend = this_qstart + width
             QRS_ranges += [ ( this_qstart, this_qend )  ]
 
-        # última referencia
-        this_start = this_end + width + 2
-        this_end = references[-1] - half_win - 1
+#        # última referencia
+#        this_start = this_end + width + 2
+#        this_end = references[-1] - half_win - 1
+#        
+#        if this_end - width > this_start:
+#            
+#            no_QRS_ranges += [ ( this_start , this_end )  ]
+#    
+#        # posible último tramo
+#        this_start = this_end + width + 2
+#        this_end = start_end[1]
+#        
+#        if this_end - width > this_start:
+#            
+#            no_QRS_ranges += [ ( this_start , this_end )  ]
         
-        if this_end - width > this_start:
-            
-            no_QRS_ranges += [ ( this_start , this_end )  ]
-    
-        # posible último tramo
-        this_start = this_end + width + 2
-        this_end = start_end[1]
-        
-        if this_end - width > this_start:
-            
-            no_QRS_ranges += [ ( this_start , this_end )  ]
     
     return no_QRS_ranges, QRS_ranges
 
@@ -151,7 +159,7 @@ def convert_input(channel, beats):
 
     # Uso la ventana de hamming para la campana
     width = 36
-    filter = ss.hamming(width)
+    filter = sig.hamming(width)
     gauss = np.convolve(filter, dirac, mode = 'same')
 
     return dirac, gauss
@@ -181,6 +189,7 @@ def make_dataset(records, data_path, ds_config, data_aumentation = 1):
 
         w_in_samp = my_int( ds_config['width'] * field['fs'])
         hw_in_samp = my_int( ds_config['width'] * field['fs'] / 2)
+        tol_in_samp = my_int( ds_config['heartbeat_tolerance'] * field['fs'])
         samp_around_beats = w_in_samp * len(beats)
         # acumulo los ratios de QRS sobre el total de muestras para mantener ese ratio en el train ds
         this_ratio = (field['sig_len'] - samp_around_beats)/samp_around_beats
@@ -210,24 +219,48 @@ def make_dataset(records, data_path, ds_config, data_aumentation = 1):
         
         # genero los comienzos aumentados de acuerdo a data_aumentation
         starts = []
-        starts += [ np.random.randint(this_start_end[0], this_start_end[1] - w_in_samp, size=data_aumentation, dtype='int') for this_start_end in no_QRS_ranges ]
-        starts += [ np.random.randint(this_start_end[0], this_start_end[1] - hw_in_samp, size=data_aumentation, dtype='int') for this_start_end in QRS_ranges ]
+        
+        starts += [ (np.random.randint(this_start_end[0] - hw_in_samp, this_start_end[1] - hw_in_samp, size=data_aumentation, dtype='int')).reshape(data_aumentation,1) for this_start_end in no_QRS_ranges ]
+        starts += [ (np.random.randint(this_start_end[0] - tol_in_samp, this_start_end[0] + tol_in_samp, size=data_aumentation, dtype='int')).reshape(data_aumentation,1) for this_start_end in QRS_ranges ]
+#        starts += [ this_start_end[0] for this_start_end in QRS_ranges ]
         
         # 0: No QRS - 1: QRS
         this_lab = np.concatenate( ( np.zeros( ( my_int(len(no_QRS_ranges) * field['n_sig']) ,1) ), np.ones( (my_int(len(QRS_ranges) * field['n_sig']), 1) ) ), axis = 0 )
         
+        # unbias and normalize
+        bScaleRecording = True
+#        bScaleRecording = False
+        if bScaleRecording:
+            this_scale = mad(data, axis=0).reshape(field['n_sig'], 1 )
+        
+        starts = np.vstack(starts)
+        the_sigs = []
         for this_start in starts :
         
-            this_sig = np.transpose(data[my_int(this_start):my_int(this_start + w_in_samp), :]) 
-            # detrend and normalize
-            this_sig = this_sig - 
+            try:
+                this_sig = np.transpose(data[my_int(this_start):my_int(this_start + w_in_samp), :]) 
+                # unbias and normalize
+                this_sig = this_sig - np.median(this_sig, axis=1, keepdims = True)
+                
+                if not(bScaleRecording):
+                    this_scale = mad(this_sig, center = 0, axis=1 ).reshape(this_sig.shape[0],1 )
+                    
+                this_sig = this_sig * 1/this_scale
+                
+                the_sigs += [this_sig]
+            
+            except Exception:
+                
+                a = 0
+                
+                
         
         if len(signals) == 0:
-            labels = this_lab
-            signals = this_sig            
+            all_labels = this_lab
+            all_signals = np.vstack(the_sigs)
         else:
-            labels = np.concatenate( (labels, this_lab) )
-            signals = np.concatenate( (signals, this_sig) )
+            all_labels = np.concatenate( (all_labels, this_lab) )
+            all_signals = np.concatenate( (all_signals, np.vstack(the_sigs)) )
         
         # convierto las anotaciones según el modelo
 #        if ds_config['mode'] == 'binary':
@@ -239,10 +272,10 @@ def make_dataset(records, data_path, ds_config, data_aumentation = 1):
 
         # Acumulo
 
-
-    # Guardo en forma de diccionario
-    np.save(savepath, {'signals' : signals,
-                       'labels'  : labels })
+    return all_signals, all_labels
+#    # Guardo en forma de diccionario
+#    np.save(savepath, {'signals' : signals,
+#                       'labels'  : labels })
 
 def convert_data(data, annotations, ds_config):
     
@@ -297,75 +330,90 @@ ds_config = {
                                 # 1: QRS en la primer ventana de ancho w_1 = w/(ceil(w/150ms))
                                 # ...
                                 # k-1: QRS en la última ventana w_k
+                'heartbeat_tolerance': .07, # s
              } 
 
+train_filename = './train.npy'
+test_filename = './test.npy'
+val_filename = './val.npy'
 
-# Preparo los archivos
-record_names = get_records(data_path)
+#bRedo_ds = True
+bRedo_ds = False
 
-cant_records = len(record_names)
-print( 'Encontramos ' + str(cant_records) + ' registros' )
+if  not os.path.isfile( train_filename ) or bRedo_ds:
 
-# particionamiento de 3 vías 
-# train      80%
-# validation 20%
-# eval       20%
-record_names = np.unique(record_names)
-train_recs = np.random.choice(record_names, int(cant_records * 0.8), replace=False )
-test_recs = np.setdiff1d(record_names, train_recs, assume_unique=True)
-val_recs = np.random.choice(train_recs, int(cant_records * 0.2), replace=False )
-train_recs = np.setdiff1d(train_recs, val_recs, assume_unique=True)
+    # Preparo los archivos
+    record_names = get_records(data_path)
+    
+    # debug
+    #record_names = record_names[0:9]
+    
+    cant_records = len(record_names)
+    print( 'Encontramos ' + str(cant_records) + ' registros' )
+    
+    # particionamiento de 3 vías 
+    # train      80%
+    # validation 20%
+    # eval       20%
+    record_names = np.unique(record_names)
+    train_recs = np.random.choice(record_names, int(cant_records * 0.8), replace=False )
+    test_recs = np.setdiff1d(record_names, train_recs, assume_unique=True)
+    val_recs = np.random.choice(train_recs, int(cant_records * 0.2), replace=False )
+    train_recs = np.setdiff1d(train_recs, val_recs, assume_unique=True)
+    
+    
+    # Armo el set de entrenamiento, aumentando para que contemple desplazamientos temporales
+    train_ds = make_dataset(train_recs, data_path, ds_config, data_aumentation = 5 )
+    
+    # Armo el set de validacion
+    val_ds = make_dataset(val_recs, data_path, ds_config)
+    
+    # Armo el set de testeo
+    test_ds = make_dataset(test_recs, data_path, ds_config)
+    
+    np.save(train_filename, {'recordings' : train_recs, 'signals' : train_ds[0], 'labels'  : train_ds[1]})
+    np.save(test_filename,  {'recordings' : test_recs,  'signals' : test_ds[0],  'labels'  : test_ds[1]})
+    np.save(val_filename,   {'recordings' : val_recs,   'signals' : val_ds[0],   'labels'  : val_ds[1]})
 
-
-# Armo el set de entrenamiento
-train_ds = make_dataset(train_recs, data_path, ds_config)
-
-# Armo el set de validacion
-val_ds = make_dataset(val_recs, data_path, ds_config)
-
-# Armo el set de testeo
-test_ds = make_dataset(test_recs, data_path, ds_config)
-
-
-# Cargo el set de entrenamiento
-train_path = 'data/training.npy'
-training_set = np.load(train_path)[()]
-
-# Normalizo los datos de entrenamiento
-train_input = training_set.get('signals')
-train_input_norm = (train_input - np.mean(train_input, axis = 1,  keepdims = True)) / (np.std(train_input, axis = 1,  keepdims = True) + np.finfo(float).eps)
-
-# Normalizo las labels de entrenamiento
-train_label = training_set.get('labels')
-train_label = (train_label - np.min(train_label, axis = 1, keepdims = True)) / (np.max(train_label, axis = 1, keepdims = True) - np.min(train_label, axis = 1, keepdims = True) + np.finfo(float).eps)
-train_label_norm = train_label / (np.sum(train_label, axis = 1, keepdims = True) + np.finfo(float).eps)
-
-# Cargo el set de validación
-validation_path = 'data/validation.npy'
-validation_set = np.load(validation_path)[()]
-
-# Normalizo los datos de validación
-validation_input = validation_set.get('signals')
-validation_input_norm = (validation_input - np.mean(validation_input, axis = 1,  keepdims = True)) / (np.std(validation_input, axis = 1,  keepdims = True) + np.finfo(float).eps)
-
-# Normalizo las labels de validación
-validation_label = validation_set.get('labels')
-validation_label = (validation_label - np.min(validation_label, axis = 1, keepdims = True)) / (np.max(validation_label, axis = 1, keepdims = True) - np.min(validation_label, axis = 1, keepdims = True) + np.finfo(float).eps)
-validation_label_norm = validation_label / (np.sum(validation_label, axis = 1, keepdims = True) + np.finfo(float).eps)
-
-# Cargo el set de test
-test_path = 'data/test.npy'
-test_set = np.load(test_path)[()]
-
-# Normalizo los datos de testeo
-test_input = test_set.get('signals')
-test_input_norm = (test_input - np.mean(test_input, axis = 1,  keepdims = True)) / (np.std(test_input, axis = 1,  keepdims = True) + np.finfo(float).eps)
-
-# Normalizo las labels de testeo
-test_label = test_set.get('labels')
-test_label = (test_label - np.min(test_label, axis = 1, keepdims = True)) / (np.max(test_label, axis = 1, keepdims = True) - np.min(test_label, axis = 1, keepdims = True) + np.finfo(float).eps)
-test_label_norm = test_label / (np.sum(test_label, axis = 1, keepdims = True) + np.finfo(float).eps)
-
-# Definiciones para más adelante
-examples = np.random.randint(np.size(test_input,0), size = 5) # Se utiliza para sacar 5 ejemplos al azar del set de entrenamiento
-
+else:
+    
+    train_ds = np.load(train_filename)
+    val_ds = np.load(val_filename)
+    
+    print('Build model...')
+    model = Sequential()
+    
+    # we start off with an efficient embedding layer which maps
+    # our vocab indices into embedding_dims dimensions
+    model.add(Embedding(max_features,
+                        embedding_dims,
+                        input_length=maxlen))
+    model.add(Dropout(0.2))
+    
+    # we add a Convolution1D, which will learn filters
+    # word group filters of size filter_length:
+    model.add(Conv1D(filters,
+                     kernel_size,
+                     padding='valid',
+                     activation='relu',
+                     strides=1))
+    # we use max pooling:
+    model.add(GlobalMaxPooling1D())
+    
+    # We add a vanilla hidden layer:
+    model.add(Dense(hidden_dims))
+    model.add(Dropout(0.2))
+    model.add(Activation('relu'))
+    
+    # We project onto a single unit output layer, and squash it with a sigmoid:
+    model.add(Dense(1))
+    model.add(Activation('sigmoid'))
+    
+    model.compile(loss='binary_crossentropy',
+                  optimizer='adam',
+                  metrics=['accuracy'])
+    model.fit(x_train, y_train,
+              batch_size=batch_size,
+              epochs=epochs,
+              validation_data=(x_test, y_test))
+    
