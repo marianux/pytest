@@ -24,39 +24,160 @@ from scipy import signal as sig
 import argparse as ap
 from statsmodels.robust.scale import mad
 
+from keras.models import Sequential
+from keras.layers import Dense, Dropout, Activation
+from keras.layers import Flatten, Conv1D, GlobalMaxPooling1D, MaxPooling1D
+
+from keras.callbacks import Callback
+from sklearn.metrics import confusion_matrix, f1_score, precision_score, recall_score
+from keras import backend as K
+from keras.optimizers import Adam
+
+ 
 parser = ap.ArgumentParser(description='Prueba para entrenar un detector de QRS mediante técnicas de deep learning')
 parser.add_argument( 'db_path', 
-                     default='/home/mariano/mariano/dbs/mitdb', 
+                     default='/home/mariano/mariano/dbs/', 
                      type=str, 
                      help='Path a la base de datos')
+
+parser.add_argument( 'db_name', 
+                     default='mitdb', 
+                     type=str, 
+                     help='Nombre de la base de datos')
 
 
 args = parser.parse_args()
 
+db_path = args.db_path
+db_name = args.db_name
 
-data_path = args.db_path
 
 
-def get_records( data_path ):
-
-    # Descargo si no existe
-    if os.path.isdir( data_path ):
-            
-        # Hay 3 archivos por record
-        # *.atr es uno de ellos
-        paths = glob(os.path.join(data_path, '*.atr'))
+class MyCallbackClass(Callback):
     
-        # Elimino la extensión
-        paths = [os.path.split(path) for path in paths]
-        file_names = [path[1][:-4] for path in paths]
-        file_names.sort()
-        records = file_names
+    def on_train_begin(self, logs={}):
+     self.val_f1s = []
+     self.val_recalls = []
+     self.val_precisions = []
+     
+    def on_epoch_end(self, epoch, logs={}):
+     val_predict = (np.asarray(self.model.predict(self.validation_data[0]))).round()
+     val_targ = self.validation_data[1]
+     _val_f1 = f1_score(val_targ, val_predict)
+     _val_recall = recall_score(val_targ, val_predict)
+     _val_precision = precision_score(val_targ, val_predict)
+     
+     self.val_f1s.append(_val_f1)
+     self.val_recalls.append(_val_recall)
+     self.val_precisions.append(_val_precision)
+     print('\nval_f1: {:3.3f} — val_precision: {:3.3f} — val_recall: {:3.3f}'.format(  _val_f1, _val_precision, _val_recall ) )
+           
+     return
 
+def se(y_true, y_pred):
+    """Recall or sensitivity metric.
+
+    Only computes a batch-wise average of recall.
+
+    Computes the recall, a metric for multi-label classification of
+    how many relevant items are selected.
+    """
+    true_positives = K.sum(K.round(K.clip(y_true * y_pred, 0, 1)))
+    possible_positives = K.sum(K.round(K.clip(y_true, 0, 1)))
+    recall = true_positives / (possible_positives + K.epsilon())
+    return recall
+
+def pp(y_true, y_pred):
+    """Precision or Positive Predictive Value metric.
+
+    Only computes a batch-wise average of precision.
+
+    Computes the precision, a metric for multi-label classification of
+    how many selected items are relevant.
+    """
+    true_positives = K.sum(K.round(K.clip(y_true * y_pred, 0, 1)))
+    predicted_positives = K.sum(K.round(K.clip(y_pred, 0, 1)))
+    precision = true_positives / (predicted_positives + K.epsilon())
+    return precision
+
+def f1(y_true, y_pred):
+    
+
+    precision = pp(y_true, y_pred)
+    recall = se(y_true, y_pred)
+    return 2*((precision*recall)/(precision+recall+K.epsilon()))
+
+
+def get_records( db_path, db_name ):
+
+    data_path = os.path.join(db_path, db_name)
+
+    # particularidades de cada DB
+    if db_name == 'mitdb':
+        
+        records = ['100', '101', '103', '105', '106', '108', '109', '111', '112', '113', '114', '115', '116', '117', '118', '119', '121', '122', '123', '124', '200', '201', '202', '203', '205', '207', '208', '209', '210', '212', '213', '214', '215', '219', '220', '221', '222', '223', '228', '230', '231', '232', '233', '234']
+        patient_list = np.arange(0, len(records)) + 1
+        
+    elif db_name == 'INCART':
+        # INCART: en esta DB hay varios registros por paciente
+        records = [ 'I01', 'I02', 'I03', 'I04', 'I05', 'I06', 'I07', 'I08', 'I09', 'I10', 'I11', 'I12', 'I13', 'I14', 'I15', 'I16', 'I17', 'I18', 'I19', 'I20', 'I21', 'I22', 'I23', 'I24', 'I25', 'I26', 'I27', 'I28', 'I29', 'I30', 'I31', 'I32', 'I33', 'I34', 'I35', 'I36', 'I37', 'I38', 'I39', 'I40', 'I41', 'I42', 'I43', 'I44', 'I45', 'I46', 'I47', 'I48', 'I49', 'I50', 'I51', 'I52', 'I53', 'I54', 'I55', 'I56', 'I57', 'I58', 'I59', 'I60', 'I61', 'I62', 'I63', 'I64', 'I65', 'I66', 'I67', 'I68', 'I69', 'I70', 'I71', 'I72', 'I73', 'I74', 'I75']
+
+        patient_list = [
+                         1, 1 ,    # patient 1
+                         2, 2, 2 , # patient 2
+                         3, 3 ,    # ...
+                         4 ,       #
+                         5, 5, 5 , #
+                         6, 6, 6 , #
+                         7 , #
+                         8, 8 , #
+                         9, 9 , #
+                         10, 10, 10 , #
+                         11, 11 , #
+                         12, 12 , #
+                         13, 13 , #
+                         14, 14, 14, 14 , #
+                         15, 15 , #
+                         16, 16, 16 , #
+                         17, 17 , #
+                         18, 18 , #
+                         19, 19 , #
+                         20, 20, 20 , #
+                         21, 21 , #
+                         22, 22 , #
+                         23, 23, 23 , #
+                         24, 24, 24 , #
+                         25, 25 , #
+                         26, 26, 26 , #
+                         27, 27, 27 , #
+                         28, 28, 28 , #
+                         29, 29 , #
+                         30, 30 , #
+                         31, 31 , # ...
+                         32, 32   # patient 32
+                         ]
     else:
         
-        records = []
+        if os.path.isdir( data_path ):
+                
+            # Hay 3 archivos por record
+            # *.atr es uno de ellos
+            paths = glob(os.path.join(data_path, '*.atr'))
+        
+            # Elimino la extensión
+            paths = [os.path.split(path) for path in paths]
+            file_names = [path[1][:-4] for path in paths]
+            file_names.sort()
+            records = file_names
+            patient_list = np.arange(0, len(records)) + 1
+    
+        else:
+            
+            records = []
+            patient_list = []
+    
 
-    return records
+    return records, patient_list 
 
 def get_beats(annotation):
 
@@ -150,20 +271,6 @@ def gen_interest_ranges( start_end, references, width):
     
     return no_QRS_ranges, QRS_ranges
 
-def convert_input(channel, beats):
-    # Me quedo con todo los latidos
-
-    # Creo una señal con deltas en los latidos
-    dirac = np.zeros_like(channel)
-    dirac[beats] = 1.0
-
-    # Uso la ventana de hamming para la campana
-    width = 36
-    filter = sig.hamming(width)
-    gauss = np.convolve(filter, dirac, mode = 'same')
-
-    return dirac, gauss
-
 def my_int(x):
     
     return int(np.round(x))
@@ -225,7 +332,7 @@ def make_dataset(records, data_path, ds_config, data_aumentation = 1):
 #        starts += [ this_start_end[0] for this_start_end in QRS_ranges ]
         
         # 0: No QRS - 1: QRS
-        this_lab = np.concatenate( ( np.zeros( ( my_int(len(no_QRS_ranges) * field['n_sig']) ,1) ), np.ones( (my_int(len(QRS_ranges) * field['n_sig']), 1) ) ), axis = 0 )
+        this_lab = np.concatenate( ( np.zeros( ( my_int(len(no_QRS_ranges) * field['n_sig'] * data_aumentation) ,1) ), np.ones( (my_int(len(QRS_ranges) * field['n_sig'] * data_aumentation), 1) ) ), axis = 0 )
         
         # unbias and normalize
         bScaleRecording = True
@@ -253,7 +360,6 @@ def make_dataset(records, data_path, ds_config, data_aumentation = 1):
                 
                 a = 0
                 
-                
         
         if len(signals) == 0:
             all_labels = this_lab
@@ -262,64 +368,8 @@ def make_dataset(records, data_path, ds_config, data_aumentation = 1):
             all_labels = np.concatenate( (all_labels, this_lab) )
             all_signals = np.concatenate( (all_signals, np.vstack(the_sigs)) )
         
-        # convierto las anotaciones según el modelo
-#        if ds_config['mode'] == 'binary':
-#    
-#            
-#        elif ds_config['mode'] == 'categorical':
-#            
-#        else:
-
-        # Acumulo
 
     return all_signals, all_labels
-#    # Guardo en forma de diccionario
-#    np.save(savepath, {'signals' : signals,
-#                       'labels'  : labels })
-
-def convert_data(data, annotations, ds_config):
-    
-    signals, labels = [], []
-    
-
-        
-        
-    dirac = np.zeros((data.shape[0],1))
-    dirac[beats] = 1.0
-    
-    signals = data
-    
-    return signals, dirac
-
-#    # Convierto ambos canales
-#    for it in range(data.shape[1]):
-#        channel = data[:, it]
-#        dirac, gauss = convert_input(channel, beats)
-#        # Junto los labesl
-#        label = np.vstack([dirac, gauss])
-#
-#        # Ventana movil
-#        sta = 0
-#        end = width
-#        stride = width
-#        while end <= len(channel):
-#            # Me quedo con una ventana
-#            s_frag = channel[sta : end]
-#            l_frag = label[:, sta : end]
-#
-#            # Acumulo
-#            signals.append(s_frag)
-#            labels.append(l_frag)
-#
-#            # Paso a la ventana siguiente
-#            sta += stride
-#            end += stride
-#
-#    # Convierto a np.array
-#    signals = np.array(signals)
-#    labels = np.array(labels)
-#
-#    return signals, labels
 
 
 ds_config = { 
@@ -333,9 +383,16 @@ ds_config = {
                 'heartbeat_tolerance': .07, # s
              } 
 
-train_filename = './train.npy'
+
+
+
+train_filename =  './train.npy'
 test_filename = './test.npy'
 val_filename = './val.npy'
+
+#train_filename =  db_name + '_train.npy'
+#test_filename = db_name + '_test.npy'
+#val_filename = db_name + '_val.npy'
 
 #bRedo_ds = True
 bRedo_ds = False
@@ -343,7 +400,7 @@ bRedo_ds = False
 if  not os.path.isfile( train_filename ) or bRedo_ds:
 
     # Preparo los archivos
-    record_names = get_records(data_path)
+    record_names, patient_list = get_records(db_path, db_name)
     
     # debug
     #record_names = record_names[0:9]
@@ -363,7 +420,7 @@ if  not os.path.isfile( train_filename ) or bRedo_ds:
     
     
     # Armo el set de entrenamiento, aumentando para que contemple desplazamientos temporales
-    train_ds = make_dataset(train_recs, data_path, ds_config, data_aumentation = 5 )
+    train_ds = make_dataset(train_recs, data_path, ds_config, data_aumentation = 1 )
     
     # Armo el set de validacion
     val_ds = make_dataset(val_recs, data_path, ds_config)
@@ -376,33 +433,64 @@ if  not os.path.isfile( train_filename ) or bRedo_ds:
     np.save(val_filename,   {'recordings' : val_recs,   'signals' : val_ds[0],   'labels'  : val_ds[1]})
 
 else:
+
+    cant_filtros = 12
+    size_filtros = 3
+    hidden_dims  = 6
+    batch_size = 16
+    epochs = 5
     
-    train_ds = np.load(train_filename)
-    val_ds = np.load(val_filename)
+    train_ds = np.load(train_filename)[()]
+    train_recs = train_ds['recordings']
+    train_x = train_ds['signals']
+    train_x = train_x.reshape(train_x.shape[0], 1, train_x.shape[1])
+    train_y = train_ds['labels']
+    train_y = train_y.flatten()
+    
+    val_ds = np.load(val_filename)[()]
+    val_recs = val_ds['recordings']
+    val_x = val_ds['signals']
+    val_x = val_x.reshape(val_x.shape[0], 1, val_x.shape[1])
+    val_y = val_ds['labels']
+    val_y = val_y.flatten()
+    
+## Debug signals in train and val sets
+#plt.figure(1); idx = np.random.choice(np.array((train_y==1).nonzero()).flatten(), 20, replace=False ); sigs = train_x[idx,0,:] ;plt.plot(np.transpose(sigs)); plt.ylim((-10,10))
+#plt.figure(1); idx = np.random.choice(np.array((train_y==0).nonzero()).flatten(), 20, replace=False ); sigs = train_x[idx,0,:] ;plt.plot(np.transpose(sigs)); plt.ylim((-10,10))
+#
+#plt.figure(1); idx = np.random.choice(np.array((val_y==1).nonzero()).flatten(), 100, replace=False ); sigs = val_x[idx,0,:] ;plt.plot(np.transpose(sigs)); plt.ylim((-10,10))
+#plt.figure(1); idx = np.random.choice(np.array((val_y==0).nonzero()).flatten(), 100, replace=False ); sigs = val_x[idx,0,:] ;plt.plot(np.transpose(sigs)); plt.ylim((-10,10))    
+    
     
     print('Build model...')
+    
+    
     model = Sequential()
-    
-    # we start off with an efficient embedding layer which maps
-    # our vocab indices into embedding_dims dimensions
-    model.add(Embedding(max_features,
-                        embedding_dims,
-                        input_length=maxlen))
-    model.add(Dropout(0.2))
-    
+   
     # we add a Convolution1D, which will learn filters
     # word group filters of size filter_length:
-    model.add(Conv1D(filters,
-                     kernel_size,
-                     padding='valid',
-                     activation='relu',
-                     strides=1))
+    model.add(Conv1D(cant_filtros,
+                     size_filtros,
+                     input_shape=(1, train_x.shape[2]),
+                     strides=1,
+                     padding='same',
+                     activation='relu'
+                     ))
+    
+#    model.add(Conv1D(cant_filtros,
+#                     size_filtros,
+#                     padding='same',
+#                     activation='relu'
+#                     ))
+    
+    model.add(Dropout(0.25))
+    
     # we use max pooling:
     model.add(GlobalMaxPooling1D())
     
     # We add a vanilla hidden layer:
     model.add(Dense(hidden_dims))
-    model.add(Dropout(0.2))
+    model.add(Dropout(0.25))
     model.add(Activation('relu'))
     
     # We project onto a single unit output layer, and squash it with a sigmoid:
@@ -410,10 +498,86 @@ else:
     model.add(Activation('sigmoid'))
     
     model.compile(loss='binary_crossentropy',
-                  optimizer='adam',
-                  metrics=['accuracy'])
-    model.fit(x_train, y_train,
-              batch_size=batch_size,
-              epochs=epochs,
-              validation_data=(x_test, y_test))
+                  optimizer=Adam(lr=0.001),
+                  metrics=[f1, pp, se])
     
+    my_callback = MyCallbackClass()
+    
+    history = model.fit(train_x, train_y,
+                          batch_size=batch_size,
+                          epochs=epochs,
+                          validation_data=(val_x, val_y),
+#                          validation_data=(train_x, train_y),
+                          callbacks=[my_callback])
+    
+    model.save('qrs_detector_model.h5')  # creates a HDF5 file 'my_model.h5'
+    
+    
+    train_se = history.history['se']
+    val_se = my_callback.val_recalls
+    
+    train_pp = history.history['pp']
+    val_pp = my_callback.val_precisions
+    
+    train_f1 = history.history['f1']
+    val_f1 = my_callback.val_f1s
+    
+#    train_loss = history.history['loss']
+#    val_loss = history.history['val_loss']
+    
+    # Create count of the number of epochs
+    epoch_count = range(1, epochs + 1)
+    
+    # Visualize accuracy history
+        
+    # Visualize accuracy history
+    plt.figure(1)
+    plt.plot(epoch_count, np.transpose(np.array((train_f1, train_se, train_pp, val_f1, val_se, val_pp))))
+    plt.legend(['train_f1', 'train_se', 'train_pp', 'val_f1', 'val_se', 'val_pp'])
+    plt.xlabel('Epoch')
+    plt.ylabel('Accuracy Score')
+    plt.title('F1');
+    plt.show();
+
+    plt.figure(2)
+    plt.plot(epoch_count, train_loss, 'r--')
+    plt.plot(epoch_count, val_loss, 'b-')
+    plt.legend(['Train', 'Val'])
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.title('Loss');
+    plt.show();
+    
+    
+    train_predict = (np.asarray(model.predict(train_x))).round()
+    train_f1 = f1_score(train_y, train_predict)
+    train_recall = recall_score(train_y, train_predict)
+    train_precision = precision_score(train_y, train_predict)
+    print('Train\n-----\n F1: {:3.3f} — +P: {:3.3f} — Se: {:3.3f}'.format(  train_f1, train_precision, train_recall ) )
+    
+    val_predict = (np.asarray(model.predict(val_x))).round()
+    val_f1 = f1_score(val_y, val_predict)
+    val_recall = recall_score(val_y, val_predict)
+    val_precision = precision_score(val_y, val_predict)
+    print('Validation\n----------\n F1: {:3.3f} — +P: {:3.3f} — Se: {:3.3f}'.format( val_f1, val_precision, val_recall ) )
+
+    test_ds = np.load(test_filename)[()]
+    test_recs = test_ds['recordings']
+    test_x = test_ds['signals']
+    test_x = test_x.reshape(test_x.shape[0], 1, test_x.shape[1])
+    test_y = test_ds['labels']
+    test_y = test_y.flatten()
+
+    test_predict = (np.asarray(model.predict(test_x))).round()
+    test_f1 = f1_score(test_y, test_predict)
+    test_recall = recall_score(test_y, test_predict)
+    test_precision = precision_score(test_y, test_predict)
+    print('Test\n----\n F1: {:3.3f} — +P: {:3.3f} — Se: {:3.3f}'.format(  test_f1, test_precision, test_recall ) )
+    
+    plt.figure(3)
+    plt.plot(range(3), np.transpose(np.array(((train_f1, val_f1, test_f1), (train_recall, val_recall, test_recall), (train_precision, val_precision, test_precision) ))), 'o--' )
+    plt.xticks(np.arange(3), ('Train', 'Val', 'Test'))
+    plt.legend(['F1', 'Se', '+P'])
+    plt.title('Performance en los datasets');
+    plt.show();
+
