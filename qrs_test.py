@@ -122,7 +122,7 @@ def get_records( db_path, db_name ):
         # INCART: en esta DB hay varios registros por paciente
         records = [ 'I01', 'I02', 'I03', 'I04', 'I05', 'I06', 'I07', 'I08', 'I09', 'I10', 'I11', 'I12', 'I13', 'I14', 'I15', 'I16', 'I17', 'I18', 'I19', 'I20', 'I21', 'I22', 'I23', 'I24', 'I25', 'I26', 'I27', 'I28', 'I29', 'I30', 'I31', 'I32', 'I33', 'I34', 'I35', 'I36', 'I37', 'I38', 'I39', 'I40', 'I41', 'I42', 'I43', 'I44', 'I45', 'I46', 'I47', 'I48', 'I49', 'I50', 'I51', 'I52', 'I53', 'I54', 'I55', 'I56', 'I57', 'I58', 'I59', 'I60', 'I61', 'I62', 'I63', 'I64', 'I65', 'I66', 'I67', 'I68', 'I69', 'I70', 'I71', 'I72', 'I73', 'I74', 'I75']
 
-        patient_list = [
+        patient_list = np.array([
                          1, 1 ,    # patient 1
                          2, 2, 2 , # patient 2
                          3, 3 ,    # ...
@@ -155,7 +155,7 @@ def get_records( db_path, db_name ):
                          30, 30 , #
                          31, 31 , # ...
                          32, 32   # patient 32
-                         ]
+                         ])
     else:
         
         if os.path.isdir( data_path ):
@@ -383,16 +383,9 @@ ds_config = {
                 'heartbeat_tolerance': .07, # s
              } 
 
-
-
-
-train_filename =  './train.npy'
-test_filename = './test.npy'
-val_filename = './val.npy'
-
-#train_filename =  db_name + '_train.npy'
-#test_filename = db_name + '_test.npy'
-#val_filename = db_name + '_val.npy'
+train_filename =  db_name + '_train.npy'
+test_filename = db_name + '_test.npy'
+val_filename = db_name + '_val.npy'
 
 #bRedo_ds = True
 bRedo_ds = False
@@ -404,21 +397,38 @@ if  not os.path.isfile( train_filename ) or bRedo_ds:
     
     # debug
     #record_names = record_names[0:9]
-    
+
+    patient_indexes = np.unique(patient_list)
+    cant_patients = len(patient_indexes)
+    record_names = np.unique(record_names)
     cant_records = len(record_names)
-    print( 'Encontramos ' + str(cant_records) + ' registros' )
+    
+    print( 'Encontramos ' + str(cant_patients) + ' pacientes y ' + str(cant_records) + ' registros.' )
     
     # particionamiento de 3 vías 
     # train      80%
     # validation 20%
     # eval       20%
-    record_names = np.unique(record_names)
-    train_recs = np.random.choice(record_names, int(cant_records * 0.8), replace=False )
-    test_recs = np.setdiff1d(record_names, train_recs, assume_unique=True)
-    val_recs = np.random.choice(train_recs, int(cant_records * 0.2), replace=False )
-    train_recs = np.setdiff1d(train_recs, val_recs, assume_unique=True)
+    train_patients = np.sort(np.random.choice(patient_indexes, int(cant_patients * 0.8), replace=False ))
+    test_patients = np.sort(np.setdiff1d(patient_indexes, train_patients, assume_unique=True))
+    val_patients = np.sort(np.random.choice(train_patients, int(cant_patients * 0.2), replace=False ))
+    train_patients = np.setdiff1d(train_patients, val_patients, assume_unique=True)
     
+    train_recs = np.hstack([ record_names[(patient_list==pat_idx-1).nonzero()] for pat_idx in train_patients])
+    val_recs = np.hstack([ record_names[(patient_list==pat_idx-1).nonzero()] for pat_idx in val_patients])
+    test_recs = np.hstack([ record_names[(patient_list==pat_idx-1).nonzero()] for pat_idx in test_patients])
     
+#    # particionamiento de 3 vías 
+#    # train      80%
+#    # validation 20%
+#    # eval       20%
+#    train_recs = np.random.choice(record_names, int(cant_records * 0.8), replace=False )
+#    test_recs = np.setdiff1d(record_names, train_recs, assume_unique=True)
+#    val_recs = np.random.choice(train_recs, int(cant_records * 0.2), replace=False )
+#    train_recs = np.setdiff1d(train_recs, val_recs, assume_unique=True)
+    
+    data_path = os.path.join(db_path, db_name)
+
     # Armo el set de entrenamiento, aumentando para que contemple desplazamientos temporales
     train_ds = make_dataset(train_recs, data_path, ds_config, data_aumentation = 1 )
     
