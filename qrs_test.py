@@ -118,6 +118,12 @@ def get_records( db_path, db_name ):
         records = ['100', '101', '103', '105', '106', '108', '109', '111', '112', '113', '114', '115', '116', '117', '118', '119', '121', '122', '123', '124', '200', '201', '202', '203', '205', '207', '208', '209', '210', '212', '213', '214', '215', '219', '220', '221', '222', '223', '228', '230', '231', '232', '233', '234']
         patient_list = np.arange(0, len(records)) + 1
         
+        
+        
+    elif db_name == 'svdb':
+        records = ['800', '801', '802', '803', '804', '805', '806', '807', '808', '809', '810', '811', '812', '820', '821', '822', '823', '824', '825', '826', '827', '828', '829', '840', '841', '842', '843', '844', '845', '846', '847', '848', '849', '850', '851', '852', '853', '854', '855', '856', '857', '858', '859', '860', '861', '862', '863', '864', '865', '866', '867', '868', '869', '870', '871', '872', '873', '874', '875', '876', '877', '878', '879', '880', '881', '882', '883', '884', '885', '886', '887', '888', '889', '890', '891', '892', '893', '894']
+        patient_list = np.arange(0, len(records)) + 1
+        
     elif db_name == 'INCART':
         # INCART: en esta DB hay varios registros por paciente
         records = [ 'I01', 'I02', 'I03', 'I04', 'I05', 'I06', 'I07', 'I08', 'I09', 'I10', 'I11', 'I12', 'I13', 'I14', 'I15', 'I16', 'I17', 'I18', 'I19', 'I20', 'I21', 'I22', 'I23', 'I24', 'I25', 'I26', 'I27', 'I28', 'I29', 'I30', 'I31', 'I32', 'I33', 'I34', 'I35', 'I36', 'I37', 'I38', 'I39', 'I40', 'I41', 'I42', 'I43', 'I44', 'I45', 'I46', 'I47', 'I48', 'I49', 'I50', 'I51', 'I52', 'I53', 'I54', 'I55', 'I56', 'I57', 'I58', 'I59', 'I60', 'I61', 'I62', 'I63', 'I64', 'I65', 'I66', 'I67', 'I68', 'I69', 'I70', 'I71', 'I72', 'I73', 'I74', 'I75']
@@ -339,7 +345,12 @@ def make_dataset(records, data_path, ds_config, data_aumentation = 1):
 #        bScaleRecording = False
         if bScaleRecording:
             this_scale = mad(data, axis=0).reshape(field['n_sig'], 1 )
-        
+            bAux = np.bitwise_or( this_scale == 0,  np.isnan(this_scale))
+            if np.any(bAux):
+                # avoid scaling in case 0 or NaN
+                this_scale[bAux] = 1
+                
+                
         starts = np.vstack(starts)
         the_sigs = []
         for this_start in starts :
@@ -351,8 +362,13 @@ def make_dataset(records, data_path, ds_config, data_aumentation = 1):
                 
                 if not(bScaleRecording):
                     this_scale = mad(this_sig, center = 0, axis=1 ).reshape(this_sig.shape[0],1 )
+                    bAux = np.bitwise_or( this_scale == 0,  np.isnan(this_scale))
+                    if np.any(bAux):
+                        # avoid scaling in case 0 or NaN
+                        this_scale[bAux] = 1
                     
-                this_sig = this_sig * 1/this_scale
+                # add an small dither 
+                this_sig = this_sig * 1/this_scale + 1/500 * np.random.randn(this_sig.shape[0], this_sig.shape[1])
                 
                 the_sigs += [this_sig]
             

@@ -4,3 +4,23 @@ test\.npy
 train\.npy
 
 val\.npy
+
+INCART_test\.npy
+
+INCART_train\.npy
+
+INCART_val\.npy
+
+mitdb_test\.npy
+
+mitdb_train\.npy
+
+mitdb_val\.npy
+
+svdb_test\.npy
+
+svdb_train\.npy
+
+svdb_val\.npy
+
+qrs_detector_model\.h5
