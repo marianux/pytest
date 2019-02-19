@@ -40,17 +40,20 @@ parser.add_argument( 'db_path',
                      type=str, 
                      help='Path a la base de datos')
 
-parser.add_argument( 'db_name', 
-                     default='mitdb', 
+parser.add_argument( '--db_name', 
+                     default='', 
                      type=str, 
                      help='Nombre de la base de datos')
-
 
 args = parser.parse_args()
 
 db_path = args.db_path
 db_name = args.db_name
 
+if db_name == '':
+    # default databases
+    db_name = ['INCART', 'stdb' ,'mitdb' ,'ltdb' ,'E-OTH-12-0927-015' ,'ltafdb' ,'edb' ,'aha' ,'sddb' ,'svdb' ,'nsrdb' ,'ltstdb' , 'biosigna']
+    
 
 
 class MyCallbackClass(Callback):
@@ -110,80 +113,104 @@ def f1(y_true, y_pred):
 
 def get_records( db_path, db_name ):
 
-    data_path = os.path.join(db_path, db_name)
+    all_records = []
+    all_patient_list = []
+    size_db = []
+    
+#    if db_name=='':
+#        # explore all databases        
+#        
+#        db_names = [ name for name in os.listdir(db_path) if os.path.isdir(os.path.join(db_path, name)) ]
+#
+#    else:
+#        
+#        db_names = db_name
 
-    # particularidades de cada DB
-    if db_name == 'mitdb':
-        
-        records = ['100', '101', '103', '105', '106', '108', '109', '111', '112', '113', '114', '115', '116', '117', '118', '119', '121', '122', '123', '124', '200', '201', '202', '203', '205', '207', '208', '209', '210', '212', '213', '214', '215', '219', '220', '221', '222', '223', '228', '230', '231', '232', '233', '234']
-        patient_list = np.arange(0, len(records)) + 1
-        
-        
-        
-    elif db_name == 'svdb':
-        records = ['800', '801', '802', '803', '804', '805', '806', '807', '808', '809', '810', '811', '812', '820', '821', '822', '823', '824', '825', '826', '827', '828', '829', '840', '841', '842', '843', '844', '845', '846', '847', '848', '849', '850', '851', '852', '853', '854', '855', '856', '857', '858', '859', '860', '861', '862', '863', '864', '865', '866', '867', '868', '869', '870', '871', '872', '873', '874', '875', '876', '877', '878', '879', '880', '881', '882', '883', '884', '885', '886', '887', '888', '889', '890', '891', '892', '893', '894']
-        patient_list = np.arange(0, len(records)) + 1
-        
-    elif db_name == 'INCART':
-        # INCART: en esta DB hay varios registros por paciente
-        records = [ 'I01', 'I02', 'I03', 'I04', 'I05', 'I06', 'I07', 'I08', 'I09', 'I10', 'I11', 'I12', 'I13', 'I14', 'I15', 'I16', 'I17', 'I18', 'I19', 'I20', 'I21', 'I22', 'I23', 'I24', 'I25', 'I26', 'I27', 'I28', 'I29', 'I30', 'I31', 'I32', 'I33', 'I34', 'I35', 'I36', 'I37', 'I38', 'I39', 'I40', 'I41', 'I42', 'I43', 'I44', 'I45', 'I46', 'I47', 'I48', 'I49', 'I50', 'I51', 'I52', 'I53', 'I54', 'I55', 'I56', 'I57', 'I58', 'I59', 'I60', 'I61', 'I62', 'I63', 'I64', 'I65', 'I66', 'I67', 'I68', 'I69', 'I70', 'I71', 'I72', 'I73', 'I74', 'I75']
+    for this_db in db_name:
 
-        patient_list = np.array([
-                         1, 1 ,    # patient 1
-                         2, 2, 2 , # patient 2
-                         3, 3 ,    # ...
-                         4 ,       #
-                         5, 5, 5 , #
-                         6, 6, 6 , #
-                         7 , #
-                         8, 8 , #
-                         9, 9 , #
-                         10, 10, 10 , #
-                         11, 11 , #
-                         12, 12 , #
-                         13, 13 , #
-                         14, 14, 14, 14 , #
-                         15, 15 , #
-                         16, 16, 16 , #
-                         17, 17 , #
-                         18, 18 , #
-                         19, 19 , #
-                         20, 20, 20 , #
-                         21, 21 , #
-                         22, 22 , #
-                         23, 23, 23 , #
-                         24, 24, 24 , #
-                         25, 25 , #
-                         26, 26, 26 , #
-                         27, 27, 27 , #
-                         28, 28, 28 , #
-                         29, 29 , #
-                         30, 30 , #
-                         31, 31 , # ...
-                         32, 32   # patient 32
-                         ])
-    else:
-        
-        if os.path.isdir( data_path ):
-                
-            # Hay 3 archivos por record
-            # *.atr es uno de ellos
+        records = []
+        patient_list = []
+
+        # particularidades de cada DB
+#            if this_db == 'mitdb':
+#                
+#                records = ['100', '101', '103', '105', '106', '108', '109', '111', '112', '113', '114', '115', '116', '117', '118', '119', '121', '122', '123', '124', '200', '201', '202', '203', '205', '207', '208', '209', '210', '212', '213', '214', '215', '219', '220', '221', '222', '223', '228', '230', '231', '232', '233', '234']
+#                patient_list = np.arange(0, len(records)) + 1
+#                
+#                
+#                
+#            elif this_db == 'svdb':
+#                records = ['800', '801', '802', '803', '804', '805', '806', '807', '808', '809', '810', '811', '812', '820', '821', '822', '823', '824', '825', '826', '827', '828', '829', '840', '841', '842', '843', '844', '845', '846', '847', '848', '849', '850', '851', '852', '853', '854', '855', '856', '857', '858', '859', '860', '861', '862', '863', '864', '865', '866', '867', '868', '869', '870', '871', '872', '873', '874', '875', '876', '877', '878', '879', '880', '881', '882', '883', '884', '885', '886', '887', '888', '889', '890', '891', '892', '893', '894']
+#                patient_list = np.arange(0, len(records)) + 1
+#                
+#            elif this_db == 'INCART':
+        if this_db == 'INCART':
+            # INCART: en esta DB hay varios registros por paciente
+            records = [ 'I01', 'I02', 'I03', 'I04', 'I05', 'I06', 'I07', 'I08', 'I09', 'I10', 'I11', 'I12', 'I13', 'I14', 'I15', 'I16', 'I17', 'I18', 'I19', 'I20', 'I21', 'I22', 'I23', 'I24', 'I25', 'I26', 'I27', 'I28', 'I29', 'I30', 'I31', 'I32', 'I33', 'I34', 'I35', 'I36', 'I37', 'I38', 'I39', 'I40', 'I41', 'I42', 'I43', 'I44', 'I45', 'I46', 'I47', 'I48', 'I49', 'I50', 'I51', 'I52', 'I53', 'I54', 'I55', 'I56', 'I57', 'I58', 'I59', 'I60', 'I61', 'I62', 'I63', 'I64', 'I65', 'I66', 'I67', 'I68', 'I69', 'I70', 'I71', 'I72', 'I73', 'I74', 'I75']
+    
+            patient_list = np.array([
+                             1, 1 ,    # patient 1
+                             2, 2, 2 , # patient 2
+                             3, 3 ,    # ...
+                             4 ,       #
+                             5, 5, 5 , #
+                             6, 6, 6 , #
+                             7 , #
+                             8, 8 , #
+                             9, 9 , #
+                             10, 10, 10 , #
+                             11, 11 , #
+                             12, 12 , #
+                             13, 13 , #
+                             14, 14, 14, 14 , #
+                             15, 15 , #
+                             16, 16, 16 , #
+                             17, 17 , #
+                             18, 18 , #
+                             19, 19 , #
+                             20, 20, 20 , #
+                             21, 21 , #
+                             22, 22 , #
+                             23, 23, 23 , #
+                             24, 24, 24 , #
+                             25, 25 , #
+                             26, 26, 26 , #
+                             27, 27, 27 , #
+                             28, 28, 28 , #
+                             29, 29 , #
+                             30, 30 , #
+                             31, 31 , # ...
+                             32, 32   # patient 32
+                             ])
+        else:
+            
+            # para el resto de dbs, un registro es un paciente.                        
+            data_path = os.path.join(db_path, this_db)
+            
             paths = glob(os.path.join(data_path, '*.atr'))
         
+            if paths == []:
+                continue
+                
             # Elimino la extensión
             paths = [os.path.split(path) for path in paths]
             file_names = [path[1][:-4] for path in paths]
             file_names.sort()
+            
             records = file_names
             patient_list = np.arange(0, len(records)) + 1
-    
-        else:
-            
-            records = []
-            patient_list = []
-    
 
-    return records, patient_list 
+
+        print( 'Procesando ' + this_db )
+
+        records = [os.path.join(this_db, this_rec) for this_rec in records ]
+        
+        size_db += [ len(np.unique(patient_list)) ]
+        all_records += records
+        all_patient_list = np.hstack( [ all_patient_list, (patient_list + len(np.unique(all_patient_list)) ) ] )
+
+
+    return all_records, all_patient_list, size_db
 
 def get_beats(annotation):
 
@@ -399,9 +426,9 @@ ds_config = {
                 'heartbeat_tolerance': .07, # s
              } 
 
-train_filename =  db_name + '_train.npy'
-test_filename = db_name + '_test.npy'
-val_filename = db_name + '_val.npy'
+train_filename =  'train_' + '_'.join(db_name) + '.npy'
+test_filename = 'test_' + '_'.join(db_name) + '.npy'
+val_filename = 'val_' + '_'.join(db_name) + '.npy'
 
 #bRedo_ds = True
 bRedo_ds = False
@@ -409,30 +436,59 @@ bRedo_ds = False
 if  not os.path.isfile( train_filename ) or bRedo_ds:
 
     # Preparo los archivos
-    record_names, patient_list = get_records(db_path, db_name)
+    record_names, patient_list, size_db = get_records(db_path, db_name)
     
     # debug
     #record_names = record_names[0:9]
 
     patient_indexes = np.unique(patient_list)
     cant_patients = len(patient_indexes)
-    record_names = np.unique(record_names)
+#    record_names = np.unique(record_names)
     cant_records = len(record_names)
     
     print( 'Encontramos ' + str(cant_patients) + ' pacientes y ' + str(cant_records) + ' registros.' )
     
-    # particionamiento de 3 vías 
-    # train      80%
-    # validation 20%
-    # eval       20%
-    train_patients = np.sort(np.random.choice(patient_indexes, int(cant_patients * 0.8), replace=False ))
-    test_patients = np.sort(np.setdiff1d(patient_indexes, train_patients, assume_unique=True))
-    val_patients = np.sort(np.random.choice(train_patients, int(cant_patients * 0.2), replace=False ))
-    train_patients = np.setdiff1d(train_patients, val_patients, assume_unique=True)
+    # propocion de cada db en el dataset
+    prop_db = size_db / np.sum(size_db)
     
-    train_recs = np.hstack([ record_names[(patient_list==pat_idx-1).nonzero()] for pat_idx in train_patients])
-    val_recs = np.hstack([ record_names[(patient_list==pat_idx-1).nonzero()] for pat_idx in val_patients])
-    test_recs = np.hstack([ record_names[(patient_list==pat_idx-1).nonzero()] for pat_idx in test_patients])
+    tgt_train_size = my_int(cant_patients * 0.8)
+    
+    tgt_db_parts_size = tgt_train_size * prop_db
+    
+    tgt_db_parts_size = [ my_int(ii) for ii in tgt_db_parts_size]
+    
+    db_start = np.hstack([ 0, np.cumsum(size_db[:-1]) ])
+    db_end = db_start + size_db
+    db_idx = np.hstack([np.repeat(ii, size_db[ii]) for ii in range(len(size_db))])
+    
+    train_recs = []
+    val_recs = []
+    test_recs = []
+    
+    for ii in range(len(db_name)):
+        
+        # particionamiento de 3 vías 
+        # train      80%
+        # validation 20%
+        # eval       20%
+        
+        aux_idx = (db_idx == ii).nonzero()
+        train_patients = np.sort(np.random.choice(patient_indexes[aux_idx], tgt_db_parts_size[ii], replace=False ))
+        test_patients = np.sort(np.setdiff1d(patient_indexes[aux_idx], train_patients, assume_unique=True))
+        val_patients = np.sort(np.random.choice(train_patients, my_int(tgt_db_parts_size[ii] * 0.2), replace=False ))
+        train_patients = np.setdiff1d(train_patients, val_patients, assume_unique=True)
+        
+        aux_idx = np.hstack([ (patient_list==pat_idx).nonzero() for pat_idx in train_patients]).flatten()
+        aux_val = [record_names[my_int(ii)] for ii in aux_idx]
+        train_recs += aux_val
+
+        aux_idx = np.hstack([ (patient_list==pat_idx).nonzero() for pat_idx in val_patients]).flatten()
+        aux_val = [record_names[my_int(ii)] for ii in aux_idx]
+        val_recs += aux_val
+
+        aux_idx = np.hstack([ (patient_list==pat_idx).nonzero() for pat_idx in test_patients]).flatten()
+        aux_val = [record_names[my_int(ii)] for ii in aux_idx]
+        test_recs += aux_val
     
 #    # particionamiento de 3 vías 
 #    # train      80%
@@ -443,20 +499,19 @@ if  not os.path.isfile( train_filename ) or bRedo_ds:
 #    val_recs = np.random.choice(train_recs, int(cant_records * 0.2), replace=False )
 #    train_recs = np.setdiff1d(train_recs, val_recs, assume_unique=True)
     
-    data_path = os.path.join(db_path, db_name)
+#    data_path = os.path.join(db_path, db_name)
 
     # Armo el set de entrenamiento, aumentando para que contemple desplazamientos temporales
-    train_ds = make_dataset(train_recs, data_path, ds_config, data_aumentation = 1 )
+    train_ds = make_dataset(train_recs, db_path, ds_config, data_aumentation = 1 )
+    np.save(train_filename, {'recordings' : train_recs, 'signals' : train_ds[0], 'labels'  : train_ds[1]})
     
     # Armo el set de validacion
-    val_ds = make_dataset(val_recs, data_path, ds_config)
+    val_ds = make_dataset(val_recs, db_path, ds_config)
+    np.save(val_filename,   {'recordings' : val_recs,   'signals' : val_ds[0],   'labels'  : val_ds[1]})
     
     # Armo el set de testeo
-    test_ds = make_dataset(test_recs, data_path, ds_config)
-    
-    np.save(train_filename, {'recordings' : train_recs, 'signals' : train_ds[0], 'labels'  : train_ds[1]})
+    test_ds = make_dataset(test_recs, db_path, ds_config)
     np.save(test_filename,  {'recordings' : test_recs,  'signals' : test_ds[0],  'labels'  : test_ds[1]})
-    np.save(val_filename,   {'recordings' : val_recs,   'signals' : val_ds[0],   'labels'  : val_ds[1]})
 
 else:
 
