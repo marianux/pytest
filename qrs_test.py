@@ -52,7 +52,7 @@ db_name = args.db_name
 
 if db_name == '':
     # default databases
-    db_name = ['INCART', 'stdb' ,'mitdb' ,'ltdb' ,'E-OTH-12-0927-015' ,'ltafdb' ,'edb' ,'aha' ,'sddb' ,'svdb' ,'nsrdb' ,'ltstdb' , 'biosigna']
+    db_name = ['stdb', 'INCART', 'mitdb' ,'ltdb' ,'E-OTH-12-0927-015' ,'ltafdb' ,'edb' ,'aha' ,'sddb' ,'svdb' ,'nsrdb' ,'ltstdb' , 'biosigna']
     
 
 
@@ -316,8 +316,13 @@ def make_dataset(records, data_path, ds_config, data_aumentation = 1):
     cant_latidos_total = 0
 
     # Recorro los archivos
-    for this_rec in records:
+#    for this_rec in records:
+    
+    aux_idx = ((np.array(records) == 'stdb/315').nonzero())[0][0]
+    
+    for ii in np.arange(aux_idx, len(records)):
         
+        this_rec = records[ii]
         print ('Procesando:' + this_rec)
         data, field = wf.rdsamp(os.path.join(data_path, this_rec) )
         annotations = wf.rdann(os.path.join(data_path, this_rec), 'atr')
