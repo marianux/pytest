@@ -52,7 +52,7 @@ db_name = args.db_name
 
 if db_name == '':
     # default databases
-    db_name = ['INCART', 'stdb' ,'mitdb' ,'ltdb' ,'E-OTH-12-0927-015' ,'ltafdb' ,'edb' ,'aha' ,'sddb' ,'svdb' ,'nsrdb' ,'ltstdb' ,'qtdb' ,'biosigna']
+    db_name = ['INCART', 'stdb' ,'mitdb' ,'ltdb' ,'E-OTH-12-0927-015' ,'ltafdb' ,'edb' ,'aha' ,'sddb' ,'svdb' ,'nsrdb' ,'ltstdb' , 'biosigna']
     
 
 
@@ -205,7 +205,7 @@ def get_records( db_path, db_name ):
 
         records = [os.path.join(this_db, this_rec) for this_rec in records ]
         
-        size_db += [ len(patient_list) ]
+        size_db += [ len(np.unique(patient_list)) ]
         all_records += records
         all_patient_list = np.hstack( [ all_patient_list, (patient_list + len(np.unique(all_patient_list)) ) ] )
 
@@ -443,7 +443,7 @@ if  not os.path.isfile( train_filename ) or bRedo_ds:
 
     patient_indexes = np.unique(patient_list)
     cant_patients = len(patient_indexes)
-    record_names = np.unique(record_names)
+#    record_names = np.unique(record_names)
     cant_records = len(record_names)
     
     print( 'Encontramos ' + str(cant_patients) + ' pacientes y ' + str(cant_records) + ' registros.' )
@@ -457,8 +457,13 @@ if  not os.path.isfile( train_filename ) or bRedo_ds:
     
     tgt_db_parts_size = [ my_int(ii) for ii in tgt_db_parts_size]
     
-    starts
-    db_idx = [range() for ii in size_db]
+    db_start = np.hstack([ 0, np.cumsum(size_db[:-1]) ])
+    db_end = db_start + size_db
+    db_idx = np.hstack([np.repeat(ii, size_db[ii]) for ii in range(len(size_db))])
+    
+    train_recs = []
+    val_recs = []
+    test_recs = []
     
     for ii in range(len(db_name)):
         
@@ -467,14 +472,23 @@ if  not os.path.isfile( train_filename ) or bRedo_ds:
         # validation 20%
         # eval       20%
         
-        train_patients = np.sort(np.random.choice(patient_indexes[db_idx == ii], tgt_db_parts_size[ii], replace=False ))
-        test_patients = np.sort(np.setdiff1d(patient_indexes, train_patients, assume_unique=True))
-        val_patients = np.sort(np.random.choice(train_patients, int(cant_patients * 0.2), replace=False ))
+        aux_idx = (db_idx == ii).nonzero()
+        train_patients = np.sort(np.random.choice(patient_indexes[aux_idx], tgt_db_parts_size[ii], replace=False ))
+        test_patients = np.sort(np.setdiff1d(patient_indexes[aux_idx], train_patients, assume_unique=True))
+        val_patients = np.sort(np.random.choice(train_patients, my_int(tgt_db_parts_size[ii] * 0.2), replace=False ))
         train_patients = np.setdiff1d(train_patients, val_patients, assume_unique=True)
         
-        train_recs = np.hstack([ record_names[(patient_list==pat_idx-1).nonzero()] for pat_idx in train_patients])
-        val_recs = np.hstack([ record_names[(patient_list==pat_idx-1).nonzero()] for pat_idx in val_patients])
-        test_recs = np.hstack([ record_names[(patient_list==pat_idx-1).nonzero()] for pat_idx in test_patients])
+        aux_idx = np.hstack([ (patient_list==pat_idx).nonzero() for pat_idx in train_patients]).flatten()
+        aux_val = [record_names[my_int(ii)] for ii in aux_idx]
+        train_recs += aux_val
+
+        aux_idx = np.hstack([ (patient_list==pat_idx).nonzero() for pat_idx in val_patients]).flatten()
+        aux_val = [record_names[my_int(ii)] for ii in aux_idx]
+        val_recs += aux_val
+
+        aux_idx = np.hstack([ (patient_list==pat_idx).nonzero() for pat_idx in test_patients]).flatten()
+        aux_val = [record_names[my_int(ii)] for ii in aux_idx]
+        test_recs += aux_val
     
 #    # particionamiento de 3 vías 
 #    # train      80%
@@ -485,20 +499,19 @@ if  not os.path.isfile( train_filename ) or bRedo_ds:
 #    val_recs = np.random.choice(train_recs, int(cant_records * 0.2), replace=False )
 #    train_recs = np.setdiff1d(train_recs, val_recs, assume_unique=True)
     
-    data_path = os.path.join(db_path, db_name)
+#    data_path = os.path.join(db_path, db_name)
 
     # Armo el set de entrenamiento, aumentando para que contemple desplazamientos temporales
-    train_ds = make_dataset(train_recs, data_path, ds_config, data_aumentation = 1 )
+    train_ds = make_dataset(train_recs, db_path, ds_config, data_aumentation = 1 )
+    np.save(train_filename, {'recordings' : train_recs, 'signals' : train_ds[0], 'labels'  : train_ds[1]})
     
     # Armo el set de validacion
-    val_ds = make_dataset(val_recs, data_path, ds_config)
+    val_ds = make_dataset(val_recs, db_path, ds_config)
+    np.save(val_filename,   {'recordings' : val_recs,   'signals' : val_ds[0],   'labels'  : val_ds[1]})
     
     # Armo el set de testeo
-    test_ds = make_dataset(test_recs, data_path, ds_config)
-    
-    np.save(train_filename, {'recordings' : train_recs, 'signals' : train_ds[0], 'labels'  : train_ds[1]})
+    test_ds = make_dataset(test_recs, db_path, ds_config)
     np.save(test_filename,  {'recordings' : test_recs,  'signals' : test_ds[0],  'labels'  : test_ds[1]})
-    np.save(val_filename,   {'recordings' : val_recs,   'signals' : val_ds[0],   'labels'  : val_ds[1]})
 
 else:
 
