@@ -14,6 +14,7 @@ Created on Fri Jan 11 15:30:03 2019
 # Librerias auxiliares
 import numpy as np
 import matplotlib.pyplot as plt
+import time
 #from pandas import DataFrame
 #from IPython.display import HTML
 import os
@@ -52,7 +53,7 @@ db_name = args.db_name
 
 if db_name == '':
     # default databases
-    db_name = ['INCART', 'stdb' ,'mitdb' ,'ltdb' ,'E-OTH-12-0927-015' ,'ltafdb' ,'edb' ,'aha' ,'sddb' ,'svdb' ,'nsrdb' ,'ltstdb' , 'biosigna']
+    db_name = ['stdb', 'INCART', 'mitdb' ,'ltdb' ,'E-OTH-12-0927-015' ,'ltafdb' ,'edb' ,'aha' ,'sddb' ,'svdb' ,'nsrdb' ,'ltstdb' , 'biosigna']
     
 
 
@@ -311,13 +312,41 @@ def my_int(x):
 def make_dataset(records, data_path, ds_config, data_aumentation = 1):
 
     signals, labels = [], []
-
+    
+    
     nQRS_QRS_ratio = []
     cant_latidos_total = 0
 
     # Recorro los archivos
-    for this_rec in records:
+#    for this_rec in records:
+    
+    start_time = time.time()
+    checkpoint_time = 60*2 # segundos
+    cp_filename = './cp_temp.npy'
+    bIgnore_cp = False
+    
+    if  not os.path.isfile( cp_filename ) or bIgnore_cp:
+       
+        start_beat_idx = 0
+    #    start_beat_idx = ((np.array(records) == 'stdb/315').nonzero())[0][0]
+    #    start_beat_idx = ((np.array(records) == 'ltafdb/20').nonzero())[0][0]
+    
+    else:
         
+        aux_cp = np.load(cp_filename)[()]
+        
+        if 'tgt_ratio' in dict.keys():
+            start_beat_idx = len(records)
+            tgt_ratio = aux_cp['tgt_ratio']
+        else:
+            start_beat_idx = aux_cp['start_beat_idx']
+            nQRS_QRS_ratio = aux_cp['nQRS_QRS_ratio']
+            tgt_ratio = np.nan
+        
+    
+    for ii in np.arange(start_beat_idx, len(records)):
+        
+        this_rec = records[ii]
         print ('Procesando:' + this_rec)
         data, field = wf.rdsamp(os.path.join(data_path, this_rec) )
         annotations = wf.rdann(os.path.join(data_path, this_rec), 'atr')
@@ -335,13 +364,27 @@ def make_dataset(records, data_path, ds_config, data_aumentation = 1):
         this_ratio = (field['sig_len'] - samp_around_beats)/samp_around_beats
         nQRS_QRS_ratio.append(this_ratio)
 
+        if( (time.time() - start_time) > checkpoint_time ):
+            # checkpointing
+            print('Checkpoint @ ' + time.strftime("%a, %d %b %Y %H:%M:%S", time.gmtime()))
+            np.save(cp_filename, {'nQRS_QRS_ratio' : nQRS_QRS_ratio, 'start_beat_idx' : ii+1})
+
+            start_time = time.time()
+
+
     # target proportion ratio 
-    tgt_ratio = np.median(nQRS_QRS_ratio)
+    if np.isnan(tgt_ratio):
+        tgt_ratio = np.median(nQRS_QRS_ratio)
+        
+    start_beat_idx = 0
+
+    np.save(cp_filename, {'tgt_ratio' : tgt_ratio, 'start_beat_idx' : start_beat_idx} )
     
     signals = []
     labels = []
 
-    for this_rec in records:
+#    for this_rec in records:
+    for ii in np.arange(start_beat_idx, len(records)):
 
         print ('Procesando:' + this_rec)
         data, field = wf.rdsamp(os.path.join(data_path, this_rec) )
@@ -382,26 +425,26 @@ def make_dataset(records, data_path, ds_config, data_aumentation = 1):
         the_sigs = []
         for this_start in starts :
         
-            try:
-                this_sig = np.transpose(data[my_int(this_start):my_int(this_start + w_in_samp), :]) 
-                # unbias and normalize
-                this_sig = this_sig - np.median(this_sig, axis=1, keepdims = True)
-                
-                if not(bScaleRecording):
-                    this_scale = mad(this_sig, center = 0, axis=1 ).reshape(this_sig.shape[0],1 )
-                    bAux = np.bitwise_or( this_scale == 0,  np.isnan(this_scale))
-                    if np.any(bAux):
-                        # avoid scaling in case 0 or NaN
-                        this_scale[bAux] = 1
-                    
-                # add an small dither 
-                this_sig = this_sig * 1/this_scale + 1/500 * np.random.randn(this_sig.shape[0], this_sig.shape[1])
-                
-                the_sigs += [this_sig]
+#        try:
+            this_sig = np.transpose(data[my_int(this_start):my_int(this_start + w_in_samp), :]) 
+            # unbias and normalize
+            this_sig = this_sig - np.median(this_sig, axis=1, keepdims = True)
             
-            except Exception:
+            if not(bScaleRecording):
+                this_scale = mad(this_sig, center = 0, axis=1 ).reshape(this_sig.shape[0],1 )
+                bAux = np.bitwise_or( this_scale == 0,  np.isnan(this_scale))
+                if np.any(bAux):
+                    # avoid scaling in case 0 or NaN
+                    this_scale[bAux] = 1
                 
-                a = 0
+            # add an small dither 
+            this_sig = this_sig * 1/this_scale + 1/500 * np.random.randn(this_sig.shape[0], this_sig.shape[1])
+            
+            the_sigs += [this_sig]
+        
+#        except Exception:
+#            
+#            a = 0
                 
         
         if len(signals) == 0:
@@ -410,6 +453,15 @@ def make_dataset(records, data_path, ds_config, data_aumentation = 1):
         else:
             all_labels = np.concatenate( (all_labels, this_lab) )
             all_signals = np.concatenate( (all_signals, np.vstack(the_sigs)) )
+
+        if( (time.time() - start_time) > checkpoint_time ):
+            # checkpointing
+            print('Checkpoint @ ' + time.strftime("%a, %d %b %Y %H:%M:%S", time.gmtime()))
+            np.save(cp_filename, {'all_labels' : all_labels, 'all_signals' : all_signals, 'start_beat_idx' : ii+1})
+            start_time = time.time()
+
+
+    os.remove(cp_filename)
         
 
     return all_signals, all_labels
