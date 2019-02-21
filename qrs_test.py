@@ -19,9 +19,9 @@ import time
 #from IPython.display import HTML
 import os
 from glob import glob
-import h5py
+#import h5py
 import wfdb as wf
-from scipy import signal as sig
+#from scipy import signal as sig
 import argparse as ap
 from statsmodels.robust.scale import mad
 
@@ -321,74 +321,101 @@ def make_dataset(records, data_path, ds_config, data_aumentation = 1):
 #    for this_rec in records:
     
     start_time = time.time()
-    checkpoint_time = 60*2 # segundos
-    cp_filename = './cp_temp.npy'
-    bIgnore_cp = False
     
-    if  not os.path.isfile( cp_filename ) or bIgnore_cp:
+    ds_config['bIgnore_cp'] = False
+    
+    if  not os.path.isfile( ds_config['cp_filename'] ) or ds_config['bIgnore_cp']:
        
         start_beat_idx = 0
     #    start_beat_idx = ((np.array(records) == 'stdb/315').nonzero())[0][0]
     #    start_beat_idx = ((np.array(records) == 'ltafdb/20').nonzero())[0][0]
+#        start_beat_idx = ((np.array(records) == 'edb/e0204').nonzero())[0][0]
+#        start_beat_idx = ((np.array(records) == 'sddb/49').nonzero())[0][0]
+    
+        tgt_ratio = np.nan
+        bCalcTgtRatio = True
     
     else:
         
-        aux_cp = np.load(cp_filename)[()]
+        aux_cp = np.load(ds_config['cp_filename'])[()]
+       
+        bCalcTgtRatio = not 'tgt_ratio' in aux_cp.keys()
         
-        if 'tgt_ratio' in dict.keys():
-            start_beat_idx = len(records)
-            tgt_ratio = aux_cp['tgt_ratio']
-        else:
+        if bCalcTgtRatio:
             start_beat_idx = aux_cp['start_beat_idx']
             nQRS_QRS_ratio = aux_cp['nQRS_QRS_ratio']
             tgt_ratio = np.nan
+        else:
+            start_beat_idx = len(records)
+            tgt_ratio = aux_cp['tgt_ratio']
         
+        
+    if bCalcTgtRatio:
     
-    for ii in np.arange(start_beat_idx, len(records)):
+        for ii in np.arange(start_beat_idx, len(records)):
+            
+            this_rec = records[ii]
+            print ('Procesando:' + this_rec)
+            data, field = wf.rdsamp(os.path.join(data_path, this_rec) )
+            annotations = wf.rdann(os.path.join(data_path, this_rec), 'atr')
+    
+            # filtro los latidos 
+            beats = get_beats(annotations)
+    
+            cant_latidos_total += len(beats)
+    
+            w_in_samp = my_int( ds_config['width'] * field['fs'])
+            hw_in_samp = my_int( ds_config['width'] * field['fs'] / 2)
+            tol_in_samp = my_int( ds_config['heartbeat_tolerance'] * field['fs'])
+            samp_around_beats = w_in_samp * len(beats)
+            # acumulo los ratios de QRS sobre el total de muestras para mantener ese ratio en el train ds
+            this_ratio = (field['sig_len'] - samp_around_beats)/samp_around_beats
+            nQRS_QRS_ratio.append(this_ratio)
+    
+            if( (time.time() - start_time) > ds_config['checkpoint_time'] ):
+                # checkpointing
+                print('Checkpoint @ ' + time.strftime("%a, %d %b %Y %H:%M:%S", time.gmtime()))
+                np.save(ds_config['cp_filename'], {'nQRS_QRS_ratio' : nQRS_QRS_ratio, 'start_beat_idx' : ii+1})
+    
+                start_time = time.time()
+    
+    
+        # target proportion ratio 
+        if np.isnan(tgt_ratio):
+            tgt_ratio = np.median(nQRS_QRS_ratio)
+            
+        start_beat_idx = 0
+    
+        np.save(ds_config['cp_filename'], {'tgt_ratio' : tgt_ratio, 'start_beat_idx': 0} )
+
+    else:
+
         
+        if 'all_labels' in aux_cp.keys():
+        
+            all_labels = aux_cp['all_labels']
+            all_signals = aux_cp['all_signals']
+            start_beat_idx = aux_cp['start_beat_idx']
+        else:
+            start_beat_idx = 0
+    
+    
+    signals = []
+    labels = []
+    
+    start_time = time.time()
+
+#    for this_rec in records:
+    for ii in np.arange(start_beat_idx, len(records)):
+
         this_rec = records[ii]
         print ('Procesando:' + this_rec)
         data, field = wf.rdsamp(os.path.join(data_path, this_rec) )
         annotations = wf.rdann(os.path.join(data_path, this_rec), 'atr')
 
-        # filtro los latidos 
-        beats = get_beats(annotations)
-
-        cant_latidos_total += len(beats)
-
         w_in_samp = my_int( ds_config['width'] * field['fs'])
         hw_in_samp = my_int( ds_config['width'] * field['fs'] / 2)
         tol_in_samp = my_int( ds_config['heartbeat_tolerance'] * field['fs'])
-        samp_around_beats = w_in_samp * len(beats)
-        # acumulo los ratios de QRS sobre el total de muestras para mantener ese ratio en el train ds
-        this_ratio = (field['sig_len'] - samp_around_beats)/samp_around_beats
-        nQRS_QRS_ratio.append(this_ratio)
-
-        if( (time.time() - start_time) > checkpoint_time ):
-            # checkpointing
-            print('Checkpoint @ ' + time.strftime("%a, %d %b %Y %H:%M:%S", time.gmtime()))
-            np.save(cp_filename, {'nQRS_QRS_ratio' : nQRS_QRS_ratio, 'start_beat_idx' : ii+1})
-
-            start_time = time.time()
-
-
-    # target proportion ratio 
-    if np.isnan(tgt_ratio):
-        tgt_ratio = np.median(nQRS_QRS_ratio)
-        
-    start_beat_idx = 0
-
-    np.save(cp_filename, {'tgt_ratio' : tgt_ratio, 'start_beat_idx' : start_beat_idx} )
-    
-    signals = []
-    labels = []
-
-#    for this_rec in records:
-    for ii in np.arange(start_beat_idx, len(records)):
-
-        print ('Procesando:' + this_rec)
-        data, field = wf.rdsamp(os.path.join(data_path, this_rec) )
-        annotations = wf.rdann(os.path.join(data_path, this_rec), 'atr')
         
         # filtro los latidos 
         beats = get_beats(annotations)
@@ -454,18 +481,23 @@ def make_dataset(records, data_path, ds_config, data_aumentation = 1):
             all_labels = np.concatenate( (all_labels, this_lab) )
             all_signals = np.concatenate( (all_signals, np.vstack(the_sigs)) )
 
-        if( (time.time() - start_time) > checkpoint_time ):
+        if( (time.time() - start_time) > ds_config['checkpoint_time'] ):
             # checkpointing
             print('Checkpoint @ ' + time.strftime("%a, %d %b %Y %H:%M:%S", time.gmtime()))
-            np.save(cp_filename, {'all_labels' : all_labels, 'all_signals' : all_signals, 'start_beat_idx' : ii+1})
+            np.save(ds_config['cp_filename'], {'tgt_ratio' : tgt_ratio, 'all_labels' : all_labels, 'all_signals' : all_signals, 'start_beat_idx' : ii+1})
             start_time = time.time()
 
 
-    os.remove(cp_filename)
+    os.remove(ds_config['cp_filename'])
         
 
     return all_signals, all_labels
 
+cp_path = os.path.join('.', 'checkpoint')
+os.makedirs(cp_path, exist_ok=True)
+
+dataset_path = os.path.join('.', 'datasets')
+os.makedirs(dataset_path, exist_ok=True)
 
 ds_config = { 
                 'width': .2, # s
@@ -476,95 +508,115 @@ ds_config = {
                                 # ...
                                 # k-1: QRS en la última ventana w_k
                 'heartbeat_tolerance': .07, # s
+                
+                'checkpoint_time':  60*2, # segundos
+                'bIgnore_cp': False,
+                
+                'cp_filename':    os.path.join(cp_path, 'cp_temp.npy'),
+                'data_div_train': os.path.join(cp_path, 'data_div_train.txt'),
+                'data_div_val':   os.path.join(cp_path, 'data_div_val.txt'),
+                'data_div_test':  os.path.join(cp_path, 'data_div_test.txt'),
+                'train_filename': os.path.join(dataset_path, 'train_' + '_'.join(db_name) + '.npy'),
+                'test_filename':  os.path.join(dataset_path, 'test_' + '_'.join(db_name) + '.npy'),
+                'val_filename':   os.path.join(dataset_path, 'val_' + '_'.join(db_name) + '.npy')
              } 
 
-train_filename =  'train_' + '_'.join(db_name) + '.npy'
-test_filename = 'test_' + '_'.join(db_name) + '.npy'
-val_filename = 'val_' + '_'.join(db_name) + '.npy'
 
 #bRedo_ds = True
 bRedo_ds = False
 
-if  not os.path.isfile( train_filename ) or bRedo_ds:
+if  not os.path.isfile( ds_config['train_filename'] ) or bRedo_ds:
 
-    # Preparo los archivos
-    record_names, patient_list, size_db = get_records(db_path, db_name)
-    
-    # debug
-    #record_names = record_names[0:9]
+    if not os.path.isfile( ds_config['data_div_train'] ) or bRedo_ds:
 
-    patient_indexes = np.unique(patient_list)
-    cant_patients = len(patient_indexes)
-#    record_names = np.unique(record_names)
-    cant_records = len(record_names)
-    
-    print( 'Encontramos ' + str(cant_patients) + ' pacientes y ' + str(cant_records) + ' registros.' )
-    
-    # propocion de cada db en el dataset
-    prop_db = size_db / np.sum(size_db)
-    
-    tgt_train_size = my_int(cant_patients * 0.8)
-    
-    tgt_db_parts_size = tgt_train_size * prop_db
-    
-    tgt_db_parts_size = [ my_int(ii) for ii in tgt_db_parts_size]
-    
-    db_start = np.hstack([ 0, np.cumsum(size_db[:-1]) ])
-    db_end = db_start + size_db
-    db_idx = np.hstack([np.repeat(ii, size_db[ii]) for ii in range(len(size_db))])
-    
-    train_recs = []
-    val_recs = []
-    test_recs = []
-    
-    for ii in range(len(db_name)):
+        # Preparo los archivos
+        record_names, patient_list, size_db = get_records(db_path, db_name)
         
-        # particionamiento de 3 vías 
-        # train      80%
-        # validation 20%
-        # eval       20%
-        
-        aux_idx = (db_idx == ii).nonzero()
-        train_patients = np.sort(np.random.choice(patient_indexes[aux_idx], tgt_db_parts_size[ii], replace=False ))
-        test_patients = np.sort(np.setdiff1d(patient_indexes[aux_idx], train_patients, assume_unique=True))
-        val_patients = np.sort(np.random.choice(train_patients, my_int(tgt_db_parts_size[ii] * 0.2), replace=False ))
-        train_patients = np.setdiff1d(train_patients, val_patients, assume_unique=True)
-        
-        aux_idx = np.hstack([ (patient_list==pat_idx).nonzero() for pat_idx in train_patients]).flatten()
-        aux_val = [record_names[my_int(ii)] for ii in aux_idx]
-        train_recs += aux_val
-
-        aux_idx = np.hstack([ (patient_list==pat_idx).nonzero() for pat_idx in val_patients]).flatten()
-        aux_val = [record_names[my_int(ii)] for ii in aux_idx]
-        val_recs += aux_val
-
-        aux_idx = np.hstack([ (patient_list==pat_idx).nonzero() for pat_idx in test_patients]).flatten()
-        aux_val = [record_names[my_int(ii)] for ii in aux_idx]
-        test_recs += aux_val
+        # debug
+        #record_names = record_names[0:9]
     
-#    # particionamiento de 3 vías 
-#    # train      80%
-#    # validation 20%
-#    # eval       20%
-#    train_recs = np.random.choice(record_names, int(cant_records * 0.8), replace=False )
-#    test_recs = np.setdiff1d(record_names, train_recs, assume_unique=True)
-#    val_recs = np.random.choice(train_recs, int(cant_records * 0.2), replace=False )
-#    train_recs = np.setdiff1d(train_recs, val_recs, assume_unique=True)
+        patient_indexes = np.unique(patient_list)
+        cant_patients = len(patient_indexes)
+    #    record_names = np.unique(record_names)
+        cant_records = len(record_names)
+        
+        print( 'Encontramos ' + str(cant_patients) + ' pacientes y ' + str(cant_records) + ' registros.' )
+        
+        # propocion de cada db en el dataset
+        prop_db = size_db / np.sum(size_db)
+        
+        tgt_train_size = my_int(cant_patients * 0.8)
+        
+        tgt_db_parts_size = tgt_train_size * prop_db
+        
+        tgt_db_parts_size = [ my_int(ii) for ii in tgt_db_parts_size]
+        
+        db_start = np.hstack([ 0, np.cumsum(size_db[:-1]) ])
+        db_end = db_start + size_db
+        db_idx = np.hstack([np.repeat(ii, size_db[ii]) for ii in range(len(size_db))])
+        
+        train_recs = []
+        val_recs = []
+        test_recs = []
+        
+        for ii in range(len(db_name)):
+            
+            # particionamiento de 3 vías 
+            # train      80%
+            # validation 20%
+            # eval       20%
+            
+            aux_idx = (db_idx == ii).nonzero()
+            train_patients = np.sort(np.random.choice(patient_indexes[aux_idx], tgt_db_parts_size[ii], replace=False ))
+            test_patients = np.sort(np.setdiff1d(patient_indexes[aux_idx], train_patients, assume_unique=True))
+            val_patients = np.sort(np.random.choice(train_patients, my_int(tgt_db_parts_size[ii] * 0.2), replace=False ))
+            train_patients = np.setdiff1d(train_patients, val_patients, assume_unique=True)
+            
+            aux_idx = np.hstack([ (patient_list==pat_idx).nonzero() for pat_idx in train_patients]).flatten()
+            aux_val = [record_names[my_int(ii)] for ii in aux_idx]
+            train_recs += aux_val
     
-#    data_path = os.path.join(db_path, db_name)
+            aux_idx = np.hstack([ (patient_list==pat_idx).nonzero() for pat_idx in val_patients]).flatten()
+            aux_val = [record_names[my_int(ii)] for ii in aux_idx]
+            val_recs += aux_val
+    
+            aux_idx = np.hstack([ (patient_list==pat_idx).nonzero() for pat_idx in test_patients]).flatten()
+            aux_val = [record_names[my_int(ii)] for ii in aux_idx]
+            test_recs += aux_val
+        
+    #    # particionamiento de 3 vías 
+    #    # train      80%
+    #    # validation 20%
+    #    # eval       20%
+    #    train_recs = np.random.choice(record_names, int(cant_records * 0.8), replace=False )
+    #    test_recs = np.setdiff1d(record_names, train_recs, assume_unique=True)
+    #    val_recs = np.random.choice(train_recs, int(cant_records * 0.2), replace=False )
+    #    train_recs = np.setdiff1d(train_recs, val_recs, assume_unique=True)
+        
+    #    data_path = os.path.join(db_path, db_name)
+    
+        np.savetxt(ds_config['data_div_train'], train_recs, '%s')
+        np.savetxt(ds_config['data_div_val'], val_recs, '%s')
+        np.savetxt(ds_config['data_div_test'], test_recs, '%s')
+     
+    else:
+            
+        train_recs = np.loadtxt(ds_config['data_div_train'], dtype=str )
+        val_recs = np.loadtxt(ds_config['data_div_val'], dtype=str)
+        test_recs = np.loadtxt(ds_config['data_div_test'], dtype=str)
+
+    # Armo el set de testeo
+    test_ds = make_dataset(test_recs, db_path, ds_config)
+    np.save(ds_config['test_filename'],  {'recordings' : test_recs,  'signals' : test_ds[0],  'labels'  : test_ds[1]})
+
+    # Armo el set de validacion
+    val_ds = make_dataset(val_recs, db_path, ds_config)
+    np.save(ds_config['val_filename'], {'recordings' : val_recs,   'signals' : val_ds[0],   'labels'  : val_ds[1]})
 
     # Armo el set de entrenamiento, aumentando para que contemple desplazamientos temporales
     train_ds = make_dataset(train_recs, db_path, ds_config, data_aumentation = 1 )
-    np.save(train_filename, {'recordings' : train_recs, 'signals' : train_ds[0], 'labels'  : train_ds[1]})
-    
-    # Armo el set de validacion
-    val_ds = make_dataset(val_recs, db_path, ds_config)
-    np.save(val_filename,   {'recordings' : val_recs,   'signals' : val_ds[0],   'labels'  : val_ds[1]})
-    
-    # Armo el set de testeo
-    test_ds = make_dataset(test_recs, db_path, ds_config)
-    np.save(test_filename,  {'recordings' : test_recs,  'signals' : test_ds[0],  'labels'  : test_ds[1]})
-
+    np.save(ds_config['train_filename'], {'recordings' : train_recs, 'signals' : train_ds[0], 'labels'  : train_ds[1]})
+        
 else:
 
     cant_filtros = 12

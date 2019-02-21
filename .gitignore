@@ -24,3 +24,5 @@ svdb_train\.npy
 svdb_val\.npy
 
 qrs_detector_model\.h5
+
+checkpoint/cp_temp\.npy
