@@ -509,13 +509,16 @@ ds_config = {
                                 # k-1: QRS en la última ventana w_k
                 'heartbeat_tolerance': .07, # s
                 
-                'checkpoint_time':  60*2, # segundos
+                'checkpoint_time':  60*5, # segundos
                 'bIgnore_cp': False,
                 
                 'cp_filename':    os.path.join(cp_path, 'cp_temp.npy'),
                 'data_div_train': os.path.join(cp_path, 'data_div_train.txt'),
                 'data_div_val':   os.path.join(cp_path, 'data_div_val.txt'),
                 'data_div_test':  os.path.join(cp_path, 'data_div_test.txt'),
+                
+                'dataset_max_size':  100*1024**2, # bytes
+                    
                 'train_filename': os.path.join(dataset_path, 'train_' + '_'.join(db_name) + '.npy'),
                 'test_filename':  os.path.join(dataset_path, 'test_' + '_'.join(db_name) + '.npy'),
                 'val_filename':   os.path.join(dataset_path, 'val_' + '_'.join(db_name) + '.npy')
