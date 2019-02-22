@@ -15,13 +15,15 @@ Created on Fri Jan 11 15:30:03 2019
 import numpy as np
 import matplotlib.pyplot as plt
 import time
+import sys
+from fractions import Fraction
 #from pandas import DataFrame
 #from IPython.display import HTML
 import os
 from glob import glob
 #import h5py
 import wfdb as wf
-#from scipy import signal as sig
+from scipy import signal as sig
 import argparse as ap
 from statsmodels.robust.scale import mad
 
@@ -400,8 +402,12 @@ def make_dataset(records, data_path, ds_config, data_aumentation = 1):
             start_beat_idx = 0
     
     
-    signals = []
-    labels = []
+    all_signals = []
+    ds_part = 1
+
+    w_in_samp = my_int( ds_config['width'] * ds_config['target_fs'])
+    hw_in_samp = my_int( ds_config['width'] * ds_config['target_fs'] / 2)
+    tol_in_samp = my_int( ds_config['heartbeat_tolerance'] * ds_config['target_fs'])
     
     start_time = time.time()
 
@@ -413,15 +419,17 @@ def make_dataset(records, data_path, ds_config, data_aumentation = 1):
         data, field = wf.rdsamp(os.path.join(data_path, this_rec) )
         annotations = wf.rdann(os.path.join(data_path, this_rec), 'atr')
 
-        w_in_samp = my_int( ds_config['width'] * field['fs'])
-        hw_in_samp = my_int( ds_config['width'] * field['fs'] / 2)
-        tol_in_samp = my_int( ds_config['heartbeat_tolerance'] * field['fs'])
+        pq_ratio = ds_config['target_fs']/field['fs']
+        resample_frac = Fraction( pq_ratio ).limit_denominator(20)
+        data = sig.resample_poly(data, resample_frac.numerator, resample_frac.denominator )
         
         # filtro los latidos 
         beats = get_beats(annotations)
+        # resample references
+        beats = np.round(beats * pq_ratio)
 
         # genero las referencias temporales para generar los vectores de entrada
-        no_QRS_ranges, QRS_ranges = gen_interest_ranges( start_end=[0, field['sig_len']], references = beats, width = w_in_samp )
+        no_QRS_ranges, QRS_ranges = gen_interest_ranges( start_end=[0, np.round( field['sig_len'] * pq_ratio)  ], references = beats, width = w_in_samp )
 
         # aumento la cantidad de segmentos no_QRS de acuerdo al ratio deseado 
         segments_repeat = my_int(np.abs( len(no_QRS_ranges) - np.ceil( len(QRS_ranges) * tgt_ratio ) ))
@@ -454,6 +462,7 @@ def make_dataset(records, data_path, ds_config, data_aumentation = 1):
         
 #        try:
             this_sig = np.transpose(data[my_int(this_start):my_int(this_start + w_in_samp), :]) 
+            
             # unbias and normalize
             this_sig = this_sig - np.median(this_sig, axis=1, keepdims = True)
             
@@ -474,7 +483,7 @@ def make_dataset(records, data_path, ds_config, data_aumentation = 1):
 #            a = 0
                 
         
-        if len(signals) == 0:
+        if len(all_signals) == 0:
             all_labels = this_lab
             all_signals = np.vstack(the_sigs)
         else:
@@ -487,7 +496,14 @@ def make_dataset(records, data_path, ds_config, data_aumentation = 1):
             np.save(ds_config['cp_filename'], {'tgt_ratio' : tgt_ratio, 'all_labels' : all_labels, 'all_signals' : all_signals, 'start_beat_idx' : ii+1})
             start_time = time.time()
 
+        if sys.getsizeof(all_signals) > ds_config['dataset_max_size']:
+            
+            np.save( os.path.join( ds_config['dataset_path'], 'ds_part' + str(ds_part) + '.npy'),  {'signals' : all_signals,  'labels'  : all_labels})
 
+            ds_part += 1
+            all_signals = []
+            all_labels = []
+            
     os.remove(ds_config['cp_filename'])
         
 
@@ -509,6 +525,7 @@ ds_config = {
                                 # k-1: QRS en la última ventana w_k
                 'heartbeat_tolerance': .07, # s
                 
+                'target_fs':        250, # Hz
                 'checkpoint_time':  60*5, # segundos
                 'bIgnore_cp': False,
                 
@@ -519,6 +536,8 @@ ds_config = {
                 
                 'dataset_max_size':  100*1024**2, # bytes
                     
+                'dataset_path':   dataset_path,
+                
                 'train_filename': os.path.join(dataset_path, 'train_' + '_'.join(db_name) + '.npy'),
                 'test_filename':  os.path.join(dataset_path, 'test_' + '_'.join(db_name) + '.npy'),
                 'val_filename':   os.path.join(dataset_path, 'val_' + '_'.join(db_name) + '.npy')
