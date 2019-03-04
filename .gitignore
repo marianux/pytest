@@ -28,3 +28,5 @@ qrs_detector_model\.h5
 checkpoint/cp_temp\.npy
 
 datasets/
+
+results/
