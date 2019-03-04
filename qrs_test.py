@@ -607,8 +607,8 @@ ds_config = {
 #bRedo_ds = True
 bRedo_ds = False
 
-#bBuild_datasets = True
-bBuild_datasets = False
+bBuild_datasets = True
+#bBuild_datasets = False
 
 #if  not os.path.isfile( ds_config['train_filename'] ) or bRedo_ds:
 
@@ -638,7 +638,7 @@ if bBuild_datasets:
 #        tgt_train_size = my_int(cant_patients * 0.8)
         
         # tamaño fijo del train
-        tgt_train_size = 200
+        tgt_train_size = 100
         
         # proporciones del corpus completo
 #        tgt_db_parts_size = tgt_train_size * prop_db
