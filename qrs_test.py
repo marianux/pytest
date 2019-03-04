@@ -35,8 +35,10 @@ from keras.callbacks import Callback
 from sklearn.metrics import confusion_matrix, f1_score, precision_score, recall_score
 from keras import backend as K
 from keras.optimizers import Adam
-
+from keras.utils import Sequence, multi_gpu_model
  
+import tensorflow as tf
+
 parser = ap.ArgumentParser(description='Prueba para entrenar un detector de QRS mediante técnicas de deep learning')
 parser.add_argument( 'db_path', 
                      default='/home/mariano/mariano/dbs/', 
@@ -56,7 +58,37 @@ db_name = args.db_name
 if db_name == '':
     # default databases
     db_name = ['stdb', 'INCART', 'mitdb' ,'ltdb' ,'E-OTH-12-0927-015' ,'ltafdb' ,'edb' ,'aha' ,'sddb' ,'svdb' ,'nsrdb' ,'ltstdb' , 'biosigna']
+
+
+def generator_class( datasets, batch_size=32):
+    """A generator yields (source, target) arrays for training."""
+
+    while True:
+          
+        cant_ds = len(datasets)
     
+        # Shuffle datasets
+        datasets = np.random.choice(datasets, cant_ds, replace=False )
+        
+        for ds_idx in range(cant_ds):
+            
+            this_ds = datasets[ds_idx]
+#            print('\nEntering:' + this_ds + '\n')
+            train_ds = np.load(this_ds)[()]
+            train_x = train_ds['signals']
+            cant_samples = train_x.shape[0]
+            train_x = train_x.reshape(cant_samples, 1, train_x.shape[1])
+            train_y = train_ds['labels']
+            train_y = train_y.flatten()
+    
+            samples_idx = np.random.choice(np.arange(cant_samples), cant_samples, replace=False )
+        
+            for ii in range(0, cant_samples, batch_size):
+                # Get the samples you'll use in this batch
+                xx = np.array(train_x[ samples_idx[ii:ii+batch_size],:,:], dtype='double') 
+                yy = np.array(train_y[ samples_idx[ii:ii+batch_size] ], dtype='double') 
+          
+                yield ( xx, yy )
 
 
 class MyCallbackClass(Callback):
@@ -67,7 +99,9 @@ class MyCallbackClass(Callback):
      self.val_precisions = []
      
     def on_epoch_end(self, epoch, logs={}):
-     val_predict = (np.asarray(self.model.predict(self.validation_data[0]))).round()
+#     val_predict = (np.asarray(self.model.predict(self.validation_data[0]))).round()
+     val_predict = (np.asarray(self.model.p (self.validation_data[0]))).round()
+
      val_targ = self.validation_data[1]
      _val_f1 = f1_score(val_targ, val_predict)
      _val_recall = recall_score(val_targ, val_predict)
@@ -408,7 +442,8 @@ def make_dataset(records, data_path, ds_config, data_aumentation = 1, ds_name = 
     
     all_signals = []
     ds_part = 1
-
+    cant_total_samples = 0
+    
     w_in_samp = my_int( ds_config['width'] * ds_config['target_fs'])
     hw_in_samp = my_int( ds_config['width'] * ds_config['target_fs'] / 2)
     tol_in_samp = my_int( ds_config['heartbeat_tolerance'] * ds_config['target_fs'])
@@ -507,6 +542,7 @@ def make_dataset(records, data_path, ds_config, data_aumentation = 1, ds_name = 
 
         if sys.getsizeof(all_signals) > ds_config['dataset_max_size']:
             
+            cant_total_samples += all_signals.shape[0]
             np.save( os.path.join( ds_config['dataset_path'], 'ds_' + ds_name +  '_part_' + str(ds_part) + '.npy'),  {'signals' : all_signals,  'labels'  : all_labels})
 
             ds_part += 1
@@ -517,17 +553,26 @@ def make_dataset(records, data_path, ds_config, data_aumentation = 1, ds_name = 
 
     if ds_part > 1 and len(all_signals) > 0:
         # last part
-        np.save( os.path.join( ds_config['dataset_path'], 'ds_' + ds_name +  '_part_' + str(ds_part) + '.npy'),  {'signals' : all_signals,  'labels'  : all_labels})
+        np.save( os.path.join( ds_config['dataset_path'], 'ds_' + ds_name +  '_part_' + str(ds_part) + '.npy'),  {'signals' : all_signals,  'labels'  : all_labels , 'cant_total_samples' : cant_total_samples})
         all_signals = []
         all_labels = []
+    else:
+        # unique part
+        np.save( os.path.join( ds_config['dataset_path'], 'ds_' + ds_name + '.npy'),  {'signals' : all_signals,  'labels'  : all_labels , 'cant_total_samples' : all_signals.shape[0] })
+        
 
     return all_signals, all_labels, ds_part
+
+
 
 cp_path = os.path.join('.', 'checkpoint')
 os.makedirs(cp_path, exist_ok=True)
 
 dataset_path = os.path.join('.', 'datasets')
 os.makedirs(dataset_path, exist_ok=True)
+
+result_path = os.path.join('.', 'results')
+os.makedirs(result_path, exist_ok=True)
 
 ds_config = { 
                 'width': .2, # s
@@ -551,6 +596,7 @@ ds_config = {
                 'dataset_max_size':  100*1024**2, # bytes
                     
                 'dataset_path':   dataset_path,
+                'results_path':   result_path,
                 
                 'train_filename': os.path.join(dataset_path, 'train_' + '_'.join(db_name) + '.npy'),
                 'test_filename':  os.path.join(dataset_path, 'test_' + '_'.join(db_name) + '.npy'),
@@ -561,8 +607,12 @@ ds_config = {
 #bRedo_ds = True
 bRedo_ds = False
 
-if  not os.path.isfile( ds_config['train_filename'] ) or bRedo_ds:
+#bBuild_datasets = True
+bBuild_datasets = False
 
+#if  not os.path.isfile( ds_config['train_filename'] ) or bRedo_ds:
+
+if bBuild_datasets:
     if not os.path.isfile( ds_config['data_div_train'] ) or bRedo_ds:
 
         # Preparo los archivos
@@ -679,23 +729,53 @@ else:
     cant_filtros = 12
     size_filtros = 3
     hidden_dims  = 6
-    batch_size = 16
-    epochs = 5
+    batch_size = 2**8
+    epochs = 1
     
-    train_ds = np.load(train_filename)[()]
-    train_recs = train_ds['recordings']
-    train_x = train_ds['signals']
-    train_x = train_x.reshape(train_x.shape[0], 1, train_x.shape[1])
-    train_y = train_ds['labels']
-    train_y = train_y.flatten()
     
-    val_ds = np.load(val_filename)[()]
-    val_recs = val_ds['recordings']
-    val_x = val_ds['signals']
-    val_x = val_x.reshape(val_x.shape[0], 1, val_x.shape[1])
-    val_y = val_ds['labels']
-    val_y = val_y.flatten()
+    ## Train
     
+    paths = glob(os.path.join(ds_config['dataset_path'], 'ds_train_part_*.npy' ))
+
+    if paths == []:
+        raise EnvironmentError
+    else:
+        cant_train_parts = len(paths)
+        train_ds = np.load(os.path.join(ds_config['dataset_path'], 'ds_train_part_' + str(cant_train_parts) + '.npy' ))[()]
+        train_samples = train_ds['cant_total_samples']
+        
+        win_size_samples = (train_ds['signals']).shape[1]
+        
+        train_generator = generator_class(paths, batch_size)
+
+    ## Validation
+    paths = glob(os.path.join(ds_config['dataset_path'], 'ds_val_part_*.npy' ))
+
+    if paths == []:
+        raise EnvironmentError
+    else:
+        
+        cant_val_parts = len(paths)
+        train_ds = np.load(os.path.join(ds_config['dataset_path'], 'ds_val_part_' + str(cant_val_parts) + '.npy' ))[()]
+        val_samples = train_ds['cant_total_samples']
+        
+        val_generator = generator_class(paths, batch_size);
+
+    ## Test
+    
+    paths = glob(os.path.join(ds_config['dataset_path'], 'ds_test_part_*.npy' ))
+
+    if paths == []:
+        raise EnvironmentError
+    else:
+        
+        cant_test_parts = len(paths)
+        train_ds = np.load(os.path.join(ds_config['dataset_path'], 'ds_test_part_' + str(cant_test_parts) + '.npy' ))[()]
+        test_samples = train_ds['cant_total_samples']
+        
+        test_generator = generator_class(paths, batch_size);
+
+
 ## Debug signals in train and val sets
 #plt.figure(1); idx = np.random.choice(np.array((train_y==1).nonzero()).flatten(), 20, replace=False ); sigs = train_x[idx,0,:] ;plt.plot(np.transpose(sigs)); plt.ylim((-10,10))
 #plt.figure(1); idx = np.random.choice(np.array((train_y==0).nonzero()).flatten(), 20, replace=False ); sigs = train_x[idx,0,:] ;plt.plot(np.transpose(sigs)); plt.ylim((-10,10))
@@ -706,120 +786,154 @@ else:
     
     print('Build model...')
     
-    
-    model = Sequential()
-   
-    # we add a Convolution1D, which will learn filters
-    # word group filters of size filter_length:
-    model.add(Conv1D(cant_filtros,
-                     size_filtros,
-                     input_shape=(1, train_x.shape[2]),
-                     strides=1,
-                     padding='same',
-                     activation='relu'
-                     ))
-    
-#    model.add(Conv1D(cant_filtros,
-#                     size_filtros,
-#                     padding='same',
-#                     activation='relu'
-#                     ))
-    
-    model.add(Dropout(0.25))
-    
-    # we use max pooling:
-    model.add(GlobalMaxPooling1D())
-    
-    # We add a vanilla hidden layer:
-    model.add(Dense(hidden_dims))
-    model.add(Dropout(0.25))
-    model.add(Activation('relu'))
-    
-    # We project onto a single unit output layer, and squash it with a sigmoid:
-    model.add(Dense(1))
-    model.add(Activation('sigmoid'))
+    with tf.device('/cpu:0'):
+        model = Sequential()
+
+        # we add a Convolution1D, which will learn filters
+        # word group filters of size filter_length:
+        model.add(Conv1D(cant_filtros,
+                         size_filtros,
+                         input_shape=(1, win_size_samples),
+                         strides=1,
+                         padding='same',
+                         activation='relu'
+                         ))
+        
+    #    model.add(Conv1D(cant_filtros,
+    #                     size_filtros,
+    #                     padding='same',
+    #                     activation='relu'
+    #                     ))
+        
+    #    model.add(Dropout(0.25))
+        
+        # we use max pooling:
+        model.add(GlobalMaxPooling1D())
+        
+        # We add a vanilla hidden layer:
+        model.add(Dense(hidden_dims))
+    #    model.add(Dropout(0.25))
+        model.add(Activation('relu'))
+        
+        # We project onto a single unit output layer, and squash it with a sigmoid:
+        model.add(Dense(1))
+        model.add(Activation('sigmoid'))
+        
+
+    # Replicates the model on 8 GPUs.
+    # This assumes that your machine has 8 available GPUs.
+#    parallel_model = multi_gpu_model(model, gpus=2)
+#    parallel_model.compile(loss='binary_crossentropy',
+#                              optimizer=Adam(lr=0.001),
+#                              metrics=[f1, pp, se])
     
     model.compile(loss='binary_crossentropy',
                   optimizer=Adam(lr=0.001),
                   metrics=[f1, pp, se])
     
     my_callback = MyCallbackClass()
-    
-    history = model.fit(train_x, train_y,
-                          batch_size=batch_size,
-                          epochs=epochs,
-                          validation_data=(val_x, val_y),
-#                          validation_data=(train_x, train_y),
-                          callbacks=[my_callback])
-    
-    model.save('qrs_detector_model.h5')  # creates a HDF5 file 'my_model.h5'
-    
-    
-    train_se = history.history['se']
-    val_se = my_callback.val_recalls
-    
-    train_pp = history.history['pp']
-    val_pp = my_callback.val_precisions
-    
-    train_f1 = history.history['f1']
-    val_f1 = my_callback.val_f1s
-    
-#    train_loss = history.history['loss']
-#    val_loss = history.history['val_loss']
-    
-    # Create count of the number of epochs
-    epoch_count = range(1, epochs + 1)
-    
-    # Visualize accuracy history
-        
-    # Visualize accuracy history
-    plt.figure(1)
-    plt.plot(epoch_count, np.transpose(np.array((train_f1, train_se, train_pp, val_f1, val_se, val_pp))))
-    plt.legend(['train_f1', 'train_se', 'train_pp', 'val_f1', 'val_se', 'val_pp'])
-    plt.xlabel('Epoch')
-    plt.ylabel('Accuracy Score')
-    plt.title('F1');
-    plt.show();
 
-    plt.figure(2)
-    plt.plot(epoch_count, train_loss, 'r--')
-    plt.plot(epoch_count, val_loss, 'b-')
-    plt.legend(['Train', 'Val'])
-    plt.xlabel('Epoch')
-    plt.ylabel('Loss')
-    plt.title('Loss');
-    plt.show();
+    print('Start training @ ' + time.strftime("%a, %d %b %Y %H:%M:%S", time.gmtime()))
+    start_time = time.time()
     
+    history = model.fit_generator(train_generator,
+                                  steps_per_epoch = np.ceil(train_samples / batch_size),
+                                  epochs = epochs
+        #                          validation_data=(train_x, train_y),
+#                                  callbacks=[my_callback])
+                                  )
     
-    train_predict = (np.asarray(model.predict(train_x))).round()
-    train_f1 = f1_score(train_y, train_predict)
-    train_recall = recall_score(train_y, train_predict)
-    train_precision = precision_score(train_y, train_predict)
-    print('Train\n-----\n F1: {:3.3f} — +P: {:3.3f} — Se: {:3.3f}'.format(  train_f1, train_precision, train_recall ) )
+#    history = parallel_model.fit_generator(train_generator,
+#                                  steps_per_epoch = np.ceil(train_samples / batch_size),
+#                                  epochs = 50
+#        #                          validation_data=(train_x, train_y),
+##                                  callbacks=[my_callback])
+#                                  )
     
-    val_predict = (np.asarray(model.predict(val_x))).round()
-    val_f1 = f1_score(val_y, val_predict)
-    val_recall = recall_score(val_y, val_predict)
-    val_precision = precision_score(val_y, val_predict)
-    print('Validation\n----------\n F1: {:3.3f} — +P: {:3.3f} — Se: {:3.3f}'.format( val_f1, val_precision, val_recall ) )
+#    history = parallel_model.fit_generator(train_generator,
+#                                  steps_per_epoch = np.ceil(train_samples / batch_size),
+#                                  validation_data=val_generator,
+#                                  validation_steps = np.ceil(val_samples / batch_size),
+#                                  epochs = 10
+#        #                          validation_data=(train_x, train_y),
+##                                  callbacks=[my_callback])
+#                                  )
+#    
 
-    test_ds = np.load(test_filename)[()]
-    test_recs = test_ds['recordings']
-    test_x = test_ds['signals']
-    test_x = test_x.reshape(test_x.shape[0], 1, test_x.shape[1])
-    test_y = test_ds['labels']
-    test_y = test_y.flatten()
-
-    test_predict = (np.asarray(model.predict(test_x))).round()
-    test_f1 = f1_score(test_y, test_predict)
-    test_recall = recall_score(test_y, test_predict)
-    test_precision = precision_score(test_y, test_predict)
-    print('Test\n----\n F1: {:3.3f} — +P: {:3.3f} — Se: {:3.3f}'.format(  test_f1, test_precision, test_recall ) )
     
-    plt.figure(3)
-    plt.plot(range(3), np.transpose(np.array(((train_f1, val_f1, test_f1), (train_recall, val_recall, test_recall), (train_precision, val_precision, test_precision) ))), 'o--' )
-    plt.xticks(np.arange(3), ('Train', 'Val', 'Test'))
-    plt.legend(['F1', 'Se', '+P'])
-    plt.title('Performance en los datasets');
-    plt.show();
+    print('End training @ ' + time.strftime("%a, %d %b %Y %H:%M:%S", time.gmtime()))
+    time_elapsed = time.time() - start_time
+    print( 'Time elapsed to train: ' + time.strftime("%H:%M:%S", time.gmtime(1908.3345155715942)) )
+    
+    model_id = time.strftime("%d_%b_%Y_%H_%M_%S", time.gmtime())
+    model.save( os.path.join( ds_config['results_path'], model_id + 'qrs_detector_model_' + '.h5'))  # creates a HDF5 file 'my_model.h5'
+    np.save( os.path.join( ds_config['results_path'], model_id + '_history.npy'), {'history' : history})
+    
+#    train_se = history.history['se']
+#    val_se = my_callback.val_recalls
+#    
+#    train_pp = history.history['pp']
+#    val_pp = my_callback.val_precisions
+#    
+#    train_f1 = history.history['f1']
+#    val_f1 = my_callback.val_f1s
+#    
+##    train_loss = history.history['loss']
+##    val_loss = history.history['val_loss']
+#    
+#    # Create count of the number of epochs
+#    epoch_count = range(1, epochs + 1)
+#    
+#    # Visualize accuracy history
+#        
+#    # Visualize accuracy history
+#    plt.figure(1)
+#    plt.plot(epoch_count, np.transpose(np.array((train_f1, train_se, train_pp, val_f1, val_se, val_pp))))
+#    plt.legend(['train_f1', 'train_se', 'train_pp', 'val_f1', 'val_se', 'val_pp'])
+#    plt.xlabel('Epoch')
+#    plt.ylabel('Accuracy Score')
+#    plt.title('F1');
+#    plt.show();
+#
+#    plt.figure(2)
+#    plt.plot(epoch_count, train_loss, 'r--')
+#    plt.plot(epoch_count, val_loss, 'b-')
+#    plt.legend(['Train', 'Val'])
+#    plt.xlabel('Epoch')
+#    plt.ylabel('Loss')
+#    plt.title('Loss');
+#    plt.show();
+#    
+#    
+#    train_predict = (np.asarray(model.predict(train_x))).round()
+#    train_f1 = f1_score(train_y, train_predict)
+#    train_recall = recall_score(train_y, train_predict)
+#    train_precision = precision_score(train_y, train_predict)
+#    print('Train\n-----\n F1: {:3.3f} — +P: {:3.3f} — Se: {:3.3f}'.format(  train_f1, train_precision, train_recall ) )
+#    
+#    val_predict = (np.asarray(model.predict(val_x))).round()
+#    val_f1 = f1_score(val_y, val_predict)
+#    val_recall = recall_score(val_y, val_predict)
+#    val_precision = precision_score(val_y, val_predict)
+#    print('Validation\n----------\n F1: {:3.3f} — +P: {:3.3f} — Se: {:3.3f}'.format( val_f1, val_precision, val_recall ) )
+#
+#    test_ds = np.load(test_filename)[()]
+#    test_recs = test_ds['recordings']
+#    test_x = test_ds['signals']
+#    test_x = test_x.reshape(test_x.shape[0], 1, test_x.shape[1])
+#    test_y = test_ds['labels']
+#    test_y = test_y.flatten()
+#
+#    test_predict = (np.asarray(model.predict(test_x))).round()
+#    test_f1 = f1_score(test_y, test_predict)
+#    test_recall = recall_score(test_y, test_predict)
+#    test_precision = precision_score(test_y, test_predict)
+#    print('Test\n----\n F1: {:3.3f} — +P: {:3.3f} — Se: {:3.3f}'.format(  test_f1, test_precision, test_recall ) )
+#    
+#    plt.figure(3)
+#    plt.plot(range(3), np.transpose(np.array(((train_f1, val_f1, test_f1), (train_recall, val_recall, test_recall), (train_precision, val_precision, test_precision) ))), 'o--' )
+#    plt.xticks(np.arange(3), ('Train', 'Val', 'Test'))
+#    plt.legend(['F1', 'Se', '+P'])
+#    plt.title('Performance en los datasets');
+#    plt.show();
 
