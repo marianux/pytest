@@ -6,10 +6,11 @@ Created on Wed Mar  6 11:39:24 2019
 @author: mariano
 """
 from keras.models import Sequential
-#from keras.layers import Dense, Dropout, Activation
-#from keras.layers import Flatten, Conv1D, GlobalMaxPooling1D, MaxPooling1D
+from keras.layers import Dense, Dropout, Activation
+from keras.layers import Flatten, Conv1D, GlobalMaxPooling1D, MaxPooling1D
 
-from keras.callbacks import Callback
+#from keras.callbacks import Callback
+from keras.callbacks import EarlyStopping, TerminateOnNaN, LearningRateScheduler
 #from sklearn.metrics import confusion_matrix, f1_score, precision_score, recall_score
 from keras import backend as K
 from keras.optimizers import Adam
@@ -42,7 +43,7 @@ def generator_class( datasets, batch_size=32):
             train_ds = np.load(this_ds)[()]
             train_x = train_ds['signals']
             cant_samples = train_x.shape[0]
-            train_x = train_x.reshape(cant_samples, 1, train_x.shape[1])
+            train_x = train_x.reshape(cant_samples, train_x.shape[1], 1)
             train_y = train_ds['labels']
             train_y = train_y.flatten()
     
@@ -55,31 +56,32 @@ def generator_class( datasets, batch_size=32):
           
                 yield ( xx, yy )
 
+            
 
-class MyCallbackClass(Callback):
-    
-    def on_train_begin(self, logs={}):
-     self.val_f1s = []
-     self.val_recalls = []
-     self.val_precisions = []
-     
-    def on_epoch_end(self, epoch, logs={}):
-     val_predict = (np.asarray(self.model.predict(self.validation_data[0]))).round()
-#     val_predict = (np.asarray(self.model.p (self.validation_data[0]))).round()
+#class MyCallbackClass(Callback):
+#    
+#    def on_train_begin(self, logs={}):
+#     self.val_f1s = []
+#     self.val_recalls = []
+#     self.val_precisions = []
+#     
+#    def on_epoch_end(self, epoch, logs={}):
+#     val_predict = (np.asarray(self.model.predict(self.validation_data[0]))).round()
+##     val_predict = (np.asarray(self.model.p (self.validation_data[0]))).round()
+#
+#     val_targ = self.validation_data[1]
+#     _val_f1 = f1_score(val_targ, val_predict)
+#     _val_recall = recall_score(val_targ, val_predict)
+#     _val_precision = precision_score(val_targ, val_predict)
+#     
+#     self.val_f1s.append(_val_f1)
+#     self.val_recalls.append(_val_recall)
+#     self.val_precisions.append(_val_precision)
+#     print('\nval_f1: {:3.3f} — val_precision: {:3.3f} — val_recall: {:3.3f}'.format(  _val_f1, _val_precision, _val_recall ) )
+#           
+#     return
 
-     val_targ = self.validation_data[1]
-     _val_f1 = f1_score(val_targ, val_predict)
-     _val_recall = recall_score(val_targ, val_predict)
-     _val_precision = precision_score(val_targ, val_predict)
-     
-     self.val_f1s.append(_val_f1)
-     self.val_recalls.append(_val_recall)
-     self.val_precisions.append(_val_precision)
-     print('\nval_f1: {:3.3f} — val_precision: {:3.3f} — val_recall: {:3.3f}'.format(  _val_f1, _val_precision, _val_recall ) )
-           
-     return
-
-def se(y_true, y_pred):
+def t_se(y_true, y_pred):
     """Recall or sensitivity metric.
 
     Only computes a batch-wise average of recall.
@@ -92,7 +94,7 @@ def se(y_true, y_pred):
     recall = true_positives / (possible_positives + K.epsilon())
     return recall
 
-def pp(y_true, y_pred):
+def t_pp(y_true, y_pred):
     """Precision or Positive Predictive Value metric.
 
     Only computes a batch-wise average of precision.
@@ -104,6 +106,40 @@ def pp(y_true, y_pred):
     predicted_positives = K.sum(K.round(K.clip(y_pred, 0, 1)))
     precision = true_positives / (predicted_positives + K.epsilon())
     return precision
+
+def t_f1(y_true, y_pred):
+    
+
+    precision = t_pp(y_true, y_pred)
+    recall = t_se(y_true, y_pred)
+    return 2*((precision*recall)/(precision+recall+K.epsilon()))
+
+
+def pp(y_true, y_pred):
+    """Precision or Positive Predictive Value metric.
+
+    Only computes a batch-wise average of precision.
+
+    Computes the precision, a metric for multi-label classification of
+    how many selected items are relevant.
+    """
+    true_positives = np.sum(np.round(np.clip(y_true * y_pred, 0, 1)))
+    predicted_positives = np.sum(np.round(np.clip(y_pred, 0, 1)))
+    precision = true_positives / (predicted_positives + np.finfo(predicted_positives.dtype).resolution )
+    return precision
+
+def se(y_true, y_pred):
+    """Recall or sensitivity metric.
+
+    Only computes a batch-wise average of recall.
+
+    Computes the recall, a metric for multi-label classification of
+    how many relevant items are selected.
+    """
+    true_positives = np.sum(np.round(np.clip(y_true * y_pred, 0, 1)))
+    possible_positives = np.sum(np.round(np.clip(y_true, 0, 1)))
+    recall = true_positives / (possible_positives + np.finfo(possible_positives.dtype).resolution )
+    return recall
 
 def f1(y_true, y_pred):
     
@@ -122,11 +158,11 @@ def get_dataset_size(train_list_fn):
     else:
         paths = glob(train_list_fn)
     
-    if paths == []:
+    if len(paths) == 0:
         raise EnvironmentError
     else:
         cant_train_parts = len(paths)
-        train_samples = 0
+        train_samples = 0.0
         for ii in range(cant_train_parts):
             train_ds = np.load( paths[ii] )[()]
             train_samples += train_ds['cant_total_samples']
@@ -134,6 +170,87 @@ def get_dataset_size(train_list_fn):
         win_size_samples = (train_ds['signals']).shape[1]
         
     return train_samples, win_size_samples, paths
+
+def my_int(x):
+    
+    return int(np.round(x))
+
+def my_ceil(x):
+    
+    return int(np.ceil(x))
+
+def lr_sched( ii, this_lr ):
+    
+    if ii > 0 and (my_int(ii) % 10) == 0 :
+
+        new_lr = this_lr * 0.8;
+        
+    else:
+        
+        new_lr = this_lr;
+
+    return(new_lr)
+    
+def check_datasets( ds_filename ) :
+
+    
+    ## Debug signals in train and val sets
+    plt.figure(1); idx = np.random.choice(np.array((train_y==1).nonzero()).flatten(), 20, replace=False ); sigs = train_x[idx,0,:] ;plt.plot(np.transpose(sigs)); plt.ylim((-10,10))
+    #plt.figure(1); idx = np.random.choice(np.array((train_y==0).nonzero()).flatten(), 20, replace=False ); sigs = train_x[idx,0,:] ;plt.plot(np.transpose(sigs)); plt.ylim((-10,10))
+    #
+    #plt.figure(1); idx = np.random.choice(np.array((val_y==1).nonzero()).flatten(), 100, replace=False ); sigs = val_x[idx,0,:] ;plt.plot(np.transpose(sigs)); plt.ylim((-10,10))
+    #plt.figure(1); idx = np.random.choice(np.array((val_y==0).nonzero()).flatten(), 100, replace=False ); sigs = val_x[idx,0,:] ;plt.plot(np.transpose(sigs)); plt.ylim((-10,10))    
+
+
+def define_model() :
+    
+    cant_filtros = 16
+    size_filtros = 5
+    hidden_dims  = 16
+    
+    with tf.device('/cpu:0'):
+        model = Sequential()
+    
+        # we add a Convolution1D, which will learn filters
+        # word group filters of size filter_length:
+        model.add(Conv1D(cant_filtros,
+                         size_filtros,
+                         input_shape=(train_features, 1),
+                         strides=1,
+                         padding='valid',
+                         activation='relu'
+                         ))
+    #    model.add(MaxPooling1D(pool_size=2,
+    #                           strides = 2))
+        
+        model.add(Conv1D(cant_filtros,
+                         size_filtros, 
+                         padding='valid'))
+        
+        model.add(Conv1D(cant_filtros,
+                         size_filtros, 
+                         padding='valid'))
+        
+        
+    #    model.add(Dropout(0.25))
+        
+        # we use max pooling:
+        model.add(GlobalMaxPooling1D())
+        
+        # We add a vanilla hidden layer:
+        model.add(Dense(hidden_dims))
+        model.add(Activation('relu'))
+        model.add(Dropout(0.25))
+        
+        # We project onto a single unit output layer, and squash it with a sigmoid:
+        model.add(Dense(1))
+        model.add(Activation('sigmoid'))
+        
+        model.compile(loss='binary_crossentropy',
+                      optimizer=Adam(lr=this_lr),
+                      metrics=[t_f1, t_pp, t_se])
+        
+        return(model)    
 
 parser = ap.ArgumentParser(description='Prueba para entrenar un detector de QRS mediante técnicas de deep learning')
 
@@ -159,15 +276,13 @@ val_list_fn = args.val_list
 test_list_fn = args.test_list
 
 
-
-cant_filtros = 12
-size_filtros = 3
-hidden_dims  = 6
+# Fit configuration
 batch_size = 2**8
-epochs = 50
+epochs = 100
 
 
 ## Train
+print('Build train generator ...')
 
 if train_list_fn == '':
     raise EnvironmentError
@@ -176,27 +291,21 @@ train_samples, train_features, train_paths = get_dataset_size(train_list_fn)
 
 train_generator = generator_class(train_paths, batch_size)
 
+
 if val_list_fn == '':
     
     val_generator = []
     
 else:
     
+    print('Build val generator ...')
+    
     val_samples, val_features, val_paths = get_dataset_size(val_list_fn)
     
     val_generator = generator_class(val_paths, batch_size)
-    
-if test_list_fn != '':
-    
-    test_generator = []
-    
-else:
-    
-    val_samples, val_features, val_paths = get_dataset_size(val_list_fn)
-    
-    test_generator = generator_class(val_paths, batch_size)
-    
 
+
+test_generator = []
 
 #    ## Validation
 #    paths = glob(os.path.join(ds_config['dataset_path'], 'ds_val_part_*.npy' ))
@@ -226,168 +335,205 @@ else:
 #        test_generator = generator_class(paths, batch_size);
 
 
-## Debug signals in train and val sets
-#plt.figure(1); idx = np.random.choice(np.array((train_y==1).nonzero()).flatten(), 20, replace=False ); sigs = train_x[idx,0,:] ;plt.plot(np.transpose(sigs)); plt.ylim((-10,10))
-#plt.figure(1); idx = np.random.choice(np.array((train_y==0).nonzero()).flatten(), 20, replace=False ); sigs = train_x[idx,0,:] ;plt.plot(np.transpose(sigs)); plt.ylim((-10,10))
-#
-#plt.figure(1); idx = np.random.choice(np.array((val_y==1).nonzero()).flatten(), 100, replace=False ); sigs = val_x[idx,0,:] ;plt.plot(np.transpose(sigs)); plt.ylim((-10,10))
-#plt.figure(1); idx = np.random.choice(np.array((val_y==0).nonzero()).flatten(), 100, replace=False ); sigs = val_x[idx,0,:] ;plt.plot(np.transpose(sigs)); plt.ylim((-10,10))    
 
-
-print('Build model...')
-
-with tf.device('/cpu:0'):
-    model = Sequential()
-
-    # we add a Convolution1D, which will learn filters
-    # word group filters of size filter_length:
-    model.add(Conv1D(cant_filtros,
-                     size_filtros,
-                     input_shape=(1, train_features),
-                     strides=1,
-                     padding='same',
-                     activation='relu'
-                     ))
+for this_lr in np.logspace(-5,-3,5) :
     
-#    model.add(Conv1D(cant_filtros,
-#                     size_filtros,
-#                     padding='same',
-#                     activation='relu'
-#                     ))
+    model = define_model()
     
-#    model.add(Dropout(0.25))
+    print('LR: ' + str(this_lr) )
+    print('##########')
     
-    # we use max pooling:
-    model.add(GlobalMaxPooling1D())
+    #my_callback = MyCallbackClass()
     
-    # We add a vanilla hidden layer:
-    model.add(Dense(hidden_dims))
-#    model.add(Dropout(0.25))
-    model.add(Activation('relu'))
+    print('Start training @ ' + time.strftime("%a, %d %b %Y %H:%M:%S", time.localtime()))
+    start_time = time.time()
     
-    # We project onto a single unit output layer, and squash it with a sigmoid:
-    model.add(Dense(1))
-    model.add(Activation('sigmoid'))
+    train_steps = my_ceil(train_samples / batch_size)
+    val_steps = my_ceil(val_samples / batch_size)
     
-
-# Replicates the model on 8 GPUs.
-# This assumes that your machine has 8 available GPUs.
-#    parallel_model = multi_gpu_model(model, gpus=2)
-#    parallel_model.compile(loss='binary_crossentropy',
-#                              optimizer=Adam(lr=0.001),
-#                              metrics=[f1, pp, se])
-
-model.compile(loss='binary_crossentropy',
-              optimizer=Adam(lr=0.001),
-              metrics=[f1, pp, se])
-
-#my_callback = MyCallbackClass()
-
-print('Start training @ ' + time.strftime("%a, %d %b %Y %H:%M:%S", time.gmtime()))
-start_time = time.time()
-
-history = model.fit_generator(train_generator,
-                              steps_per_epoch = np.ceil(train_samples / batch_size),
-                              epochs = epochs,
-                              validation_data = val_generator,
-                              validation_steps = 500
-#                              callbacks=[my_callback]
-                              )
-
-#    history = parallel_model.fit_generator(train_generator,
-#                                  steps_per_epoch = np.ceil(train_samples / batch_size),
-#                                  epochs = 50
-#        #                          validation_data=(train_x, train_y),
-##                                  callbacks=[my_callback])
-#                                  )
-
-#    history = parallel_model.fit_generator(train_generator,
-#                                  steps_per_epoch = np.ceil(train_samples / batch_size),
-#                                  validation_data=val_generator,
-#                                  validation_steps = np.ceil(val_samples / batch_size),
-#                                  epochs = 10
-#        #                          validation_data=(train_x, train_y),
-##                                  callbacks=[my_callback])
-#                                  )
-#    
-
-
-print('End training @ ' + time.strftime("%a, %d %b %Y %H:%M:%S", time.gmtime()))
-time_elapsed = time.time() - start_time
-print( 'Time elapsed to train: ' + time.strftime("%H:%M:%S", time.gmtime(time_elapsed)) )
-
-result_path = os.path.join('.', 'results')
-os.makedirs(result_path, exist_ok=True)
-
-model_id = time.strftime("%d_%b_%Y_%H_%M_%S", time.gmtime())
-model.save( os.path.join( result_path, model_id + 'qrs_detector_model_' + '.h5'))  # creates a HDF5 file 'my_model.h5'
-np.save( os.path.join( result_path, model_id + '_history.npy'), {'history' : history})
-
-train_se = history.history['se']
-#val_se = my_callback.val_recalls
-
-train_pp = history.history['pp']
-#val_pp = my_callback.val_precisions
-
-train_f1 = history.history['f1']
-#val_f1 = my_callback.val_f1s
-
-train_loss = history.history['loss']
-val_loss = history.history['val_loss']
-
-# Create count of the number of epochs
-epoch_count = range(1, epochs + 1)
-
-# Visualize accuracy history
     
-# Visualize accuracy history
-#plt.figure(1)
-#plt.plot(epoch_count, np.transpose(np.array((train_f1, train_se, train_pp, val_f1, val_se, val_pp))))
-#plt.legend(['train_f1', 'train_se', 'train_pp', 'val_f1', 'val_se', 'val_pp'])
-#plt.xlabel('Epoch')
-#plt.ylabel('Accuracy Score')
-#plt.title('F1');
-#plt.show();
+    
+    history = model.fit_generator(train_generator,
+                                  steps_per_epoch = train_steps,
+                                  epochs = epochs,
+                                  validation_data = val_generator,
+                                  validation_steps = my_int(val_steps/4),
+                                  callbacks=[ TerminateOnNaN(),
+                                              EarlyStopping(
+                                                           monitor='val_t_f1', 
+                                                           min_delta=0.01, 
+                                                           patience=10, 
+                                                           mode='max', 
+                                                           restore_best_weights=True),
+                                              LearningRateScheduler(lr_sched, verbose=1)
 
-plt.figure(2)
-plt.plot(epoch_count, train_loss, 'r--')
-plt.plot(epoch_count, val_loss, 'b-')
-plt.legend(['Train', 'Val'])
-plt.xlabel('Epoch')
-plt.ylabel('Loss')
-plt.title('Loss');
-plt.show();
+                                                
+                                            ]
+                                  )
+    
+    #    history = parallel_model.fit_generator(train_generator,
+    #                                  steps_per_epoch = np.ceil(train_samples / batch_size),
+    #                                  epochs = 50
+    #        #                          validation_data=(train_x, train_y),
+    ##                                  callbacks=[my_callback])
+    #                                  )
+    
+    #    history = parallel_model.fit_generator(train_generator,
+    #                                  steps_per_epoch = np.ceil(train_samples / batch_size),
+    #                                  validation_data=val_generator,
+    #                                  validation_steps = np.ceil(val_samples / batch_size),
+    #                                  epochs = 10
+    #        #                          validation_data=(train_x, train_y),
+    ##                                  callbacks=[my_callback])
+    #                                  )
+    #    
+    
+    
+    print('End training @ ' + time.strftime("%a, %d %b %Y %H:%M:%S", time.localtime()))
+    time_elapsed = time.time() - start_time
+    print( 'Time elapsed to train: ' + time.strftime("%H:%M:%S", time.localtime(time_elapsed)) )
+    
+    result_path = os.path.join('.', 'results')
+    os.makedirs(result_path, exist_ok=True)
+    
+    model_id = time.strftime("%d_%b_%Y_%H_%M_%S", time.localtime()) + '_lr_{:3.3f} '.format(this_lr) 
+    model.save( os.path.join( result_path, model_id + 'qrs_detector_model_' + '.h5'))  # creates a HDF5 file 'my_model.h5'
+    np.save( os.path.join( result_path, model_id + '_history.npy'), {'history' : history})
+
+    bWithTestEval = False
+
+    if bWithTestEval :
+        
+        print('Build test generator ...')
+           
+        if test_generator == [] :
+            
+            if test_list_fn == '' :
+                
+                test_steps = 0
+                
+            else:
+                
+                test_samples, test_features, test_paths = get_dataset_size(test_list_fn)
+                
+                test_generator = generator_class(test_paths, batch_size)
+                
+                test_steps = my_ceil(test_samples / batch_size)
 
 
-train_predict = (np.asarray(model.predict_generator(train_generator, steps_per_epoch = np.ceil(train_samples / batch_size) ))).round()
-train_f1 = f1_score(train_y, train_predict)
-train_recall = recall_score(train_y, train_predict)
-train_precision = precision_score(train_y, train_predict)
-print('Train\n-----\n F1: {:3.3f} — +P: {:3.3f} — Se: {:3.3f}'.format(  train_f1, train_precision, train_recall ) )
+    
+    #train_se = history.history['se']
+    ##val_se = my_callback.val_recalls
+    #
+    #train_pp = history.history['pp']
+    ##val_pp = my_callback.val_precisions
+    #
+    train_f1 = history.history['t_f1']
+    val_f1 = history.history['val_t_f1']
+    
+    train_loss = history.history['loss']
+    val_loss = history.history['val_loss']
+    
+    # Create count of the number of epochs
+    epoch_count = range(1, len(val_loss) + 1)
 
-val_predict = (np.asarray(model.predict(val_x))).round()
-val_f1 = f1_score(val_y, val_predict)
-val_recall = recall_score(val_y, val_predict)
-val_precision = precision_score(val_y, val_predict)
-print('Validation\n----------\n F1: {:3.3f} — +P: {:3.3f} — Se: {:3.3f}'.format( val_f1, val_precision, val_recall ) )
+    print('LR: ' + str(this_lr) )
+    print('##########')
 
-test_ds = np.load(test_filename)[()]
-test_recs = test_ds['recordings']
-test_x = test_ds['signals']
-test_x = test_x.reshape(test_x.shape[0], 1, test_x.shape[1])
-test_y = test_ds['labels']
-test_y = test_y.flatten()
+    train_eval = model.evaluate_generator(
+                            train_generator,
+                            steps = train_steps
+                            )
+    
+    
+    aux_str = 'Train\n-----\n'
+    for (metric_name, metric_val) in zip(model.metrics_names, train_eval):
+        aux_str += '{}: {:3.3f} '.format(metric_name, metric_val)
+    aux_str += '\n'
+    print(aux_str)
+    
+    val_eval = model.evaluate_generator(
+                            val_generator,
+                            steps = val_steps
+                            )
+    
+    
+    aux_str = 'Val\n-----\n'
+    for (metric_name, metric_val) in zip(model.metrics_names, val_eval):
+        aux_str += '{}: {:3.3f} '.format(metric_name, metric_val)
+    aux_str += '\n'
+    print(aux_str)
+    
+    
+    if bWithTestEval :
+    
+        if test_generator == [] :
+    
+            aux_str = 'Diferencia\n-------------\n'
+            for (metric_name, train_val, test_val) in zip(model.metrics_names, train_eval, val_eval):
+                aux_str += '{}: {:3.3f} '.format(metric_name, train_val - test_val)
+            aux_str += '\n'
+            print(aux_str)
+    
+        else:
+            
+            test_eval = model.evaluate_generator(
+                                    test_generator,
+                                    steps = test_steps
+                                    )
+            
+            
+            aux_str = 'Test\n-----\n'
+            for (metric_name, metric_val) in zip(model.metrics_names, test_eval):
+                aux_str += '{}: {:3.3f} '.format(metric_name, metric_val)
+            aux_str += '\n'
+            print(aux_str)
+                
+            
+            aux_str = 'Diferencia\n-------------\n'
+            for (metric_name, train_val, test_val) in zip(model.metrics_names, train_eval, test_eval):
+                aux_str += '{}: {:3.3f} '.format(metric_name, train_val - test_val)
+            aux_str += '\n'
+            print(aux_str)
+        
+    else:
+        
+        test_eval = [np.nan] * len(train_eval)
 
-test_predict = (np.asarray(model.predict(test_x))).round()
-test_f1 = f1_score(test_y, test_predict)
-test_recall = recall_score(test_y, test_predict)
-test_precision = precision_score(test_y, test_predict)
-print('Test\n----\n F1: {:3.3f} — +P: {:3.3f} — Se: {:3.3f}'.format(  test_f1, test_precision, test_recall ) )
-
-plt.figure(3)
-plt.plot(range(3), np.transpose(np.array(((train_f1, val_f1, test_f1), (train_recall, val_recall, test_recall), (train_precision, val_precision, test_precision) ))), 'o--' )
-plt.xticks(np.arange(3), ('Train', 'Val', 'Test'))
-plt.legend(['F1', 'Se', '+P'])
-plt.title('Performance en los datasets');
-plt.show();
+    # Visualize F1 history
+    plt.figure(1)
+    plt.plot(epoch_count, np.transpose(np.array((train_f1, val_f1))))
+    plt.legend(['train_f1', 'val_f1' ])
+    plt.xlabel('Epoch')
+    plt.ylabel('F Score')
+    plt.title('F1 ' + model_id);
+    plt.show();
+    
+    plt.figure(2)
+    plt.plot(epoch_count, train_loss, 'r--')
+    plt.plot(epoch_count, val_loss, 'b-')
+    plt.legend(['Train', 'Val'])
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.title('Loss');
+    plt.show();
+        
+    plt.figure(3)
+    aux_metrics = [ [train_eval[ii], val_eval[ii], test_eval[ii]]  for ii in range(1,len(model.metrics_names)) ]
+    aux_metrics = np.transpose(np.array(aux_metrics))
+    
+    plt.plot(range(3), aux_metrics, 'o--' )
+    plt.xticks(np.arange(3), ('Train', 'Val', 'Test'))
+    plt.legend(model.metrics_names)
+    plt.title('Métricas en los datasets ' + model_id);
+    plt.show();
+    
+    plt.figure(4)
+    
+    plt.plot(range(3), np.array([train_eval[0], val_eval[0], test_eval[0]]) )
+    plt.xticks(np.arange(3), ('Train', 'Val', 'Test'))
+    plt.legend(['Loss'])
+    plt.title('Loss en los datasets ' + model_id);
+    plt.show();
+    
 
