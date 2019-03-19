@@ -7,7 +7,7 @@ Created on Wed Mar  6 11:39:24 2019
 """
 from keras.models import Sequential
 from keras.layers import Dense, Dropout, Activation
-from keras.layers import Flatten, Conv1D, GlobalMaxPooling1D, MaxPooling1D
+from keras.layers import Flatten, Conv1D, GlobalMaxPooling1D, MaxPooling1D, BatchNormalization
 
 #from keras.callbacks import Callback
 from keras.callbacks import EarlyStopping, TerminateOnNaN, LearningRateScheduler
@@ -191,12 +191,14 @@ def lr_sched( ii, this_lr ):
 
     return(new_lr)
     
-def check_datasets( ds_filename ) :
+def check_datasets( data_gen ) :
 
     
+    (train_x, train_y) = next(data_gen)
+    sample_size = 20
     ## Debug signals in train and val sets
-    plt.figure(1); idx = np.random.choice(np.array((train_y==1).nonzero()).flatten(), 20, replace=False ); sigs = train_x[idx,0,:] ;plt.plot(np.transpose(sigs)); plt.ylim((-10,10))
-    #plt.figure(1); idx = np.random.choice(np.array((train_y==0).nonzero()).flatten(), 20, replace=False ); sigs = train_x[idx,0,:] ;plt.plot(np.transpose(sigs)); plt.ylim((-10,10))
+    plt.figure(1); idx = np.random.choice(np.array((train_y==1).nonzero()).flatten(), sample_size, replace=False ); sigs = train_x[idx,:,0] ;plt.plot(np.transpose(sigs)); plt.title( str(len(sigs)) +  ' Latidos'); plt.ylim((-(2**15-1), 2**15-1)); plt.show();
+    plt.figure(1); idx = np.random.choice(np.array((train_y==0).nonzero()).flatten(), sample_size, replace=False ); sigs = train_x[idx,:,0] ;plt.plot(np.transpose(sigs)); plt.title( str(len(sigs)) +  ' NO Latidos'); plt.ylim((-(2**15-1), 2**15-1)); plt.show();
     #
     #plt.figure(1); idx = np.random.choice(np.array((val_y==1).nonzero()).flatten(), 100, replace=False ); sigs = val_x[idx,0,:] ;plt.plot(np.transpose(sigs)); plt.ylim((-10,10))
     #plt.figure(1); idx = np.random.choice(np.array((val_y==0).nonzero()).flatten(), 100, replace=False ); sigs = val_x[idx,0,:] ;plt.plot(np.transpose(sigs)); plt.ylim((-10,10))    
@@ -204,8 +206,9 @@ def check_datasets( ds_filename ) :
 
 def define_model() :
     
+    cant_cnn = 16
     cant_filtros = 16
-    size_filtros = 5
+    size_filtros = 3
     hidden_dims  = 16
     
     with tf.device('/cpu:0'):
@@ -222,14 +225,15 @@ def define_model() :
                          ))
     #    model.add(MaxPooling1D(pool_size=2,
     #                           strides = 2))
+        model.add(BatchNormalization())
         
-        model.add(Conv1D(cant_filtros,
-                         size_filtros, 
-                         padding='valid'))
+        for _ in range(cant_cnn-1) :
         
-        model.add(Conv1D(cant_filtros,
-                         size_filtros, 
-                         padding='valid'))
+            model.add(Conv1D(cant_filtros,
+                             size_filtros, 
+                             padding='valid'))
+            
+            model.add(BatchNormalization())
         
         
     #    model.add(Dropout(0.25))
@@ -240,7 +244,7 @@ def define_model() :
         # We add a vanilla hidden layer:
         model.add(Dense(hidden_dims))
         model.add(Activation('relu'))
-        model.add(Dropout(0.25))
+        model.add(Dropout(0.5))
         
         # We project onto a single unit output layer, and squash it with a sigmoid:
         model.add(Dense(1))
@@ -335,8 +339,16 @@ test_generator = []
 #        test_generator = generator_class(paths, batch_size);
 
 
+bDebug = True
+#bDebug = False
 
-for this_lr in np.logspace(-5,-3,5) :
+if bDebug :
+    
+    check_datasets( train_generator ) 
+    check_datasets( val_generator ) 
+
+
+for this_lr in np.logspace(-6,-3,5) :
     
     model = define_model()
     
@@ -361,13 +373,11 @@ for this_lr in np.logspace(-5,-3,5) :
                                   callbacks=[ TerminateOnNaN(),
                                               EarlyStopping(
                                                            monitor='val_t_f1', 
-                                                           min_delta=0.01, 
+                                                           min_delta=0.005, 
                                                            patience=10, 
                                                            mode='max', 
                                                            restore_best_weights=True),
                                               LearningRateScheduler(lr_sched, verbose=1)
-
-                                                
                                             ]
                                   )
     
@@ -396,7 +406,7 @@ for this_lr in np.logspace(-5,-3,5) :
     result_path = os.path.join('.', 'results')
     os.makedirs(result_path, exist_ok=True)
     
-    model_id = time.strftime("%d_%b_%Y_%H_%M_%S", time.localtime()) + '_lr_{:3.3f} '.format(this_lr) 
+    model_id = time.strftime("%d_%b_%Y_%H_%M_%S", time.localtime()) + '_lr_{:3.3f}'.format(this_lr) 
     model.save( os.path.join( result_path, model_id + 'qrs_detector_model_' + '.h5'))  # creates a HDF5 file 'my_model.h5'
     np.save( os.path.join( result_path, model_id + '_history.npy'), {'history' : history})
 
@@ -430,6 +440,8 @@ for this_lr in np.logspace(-5,-3,5) :
     #
     train_f1 = history.history['t_f1']
     val_f1 = history.history['val_t_f1']
+    val_se = history.history['val_t_se']
+    val_pp = history.history['val_t_pp']
     
     train_loss = history.history['loss']
     val_loss = history.history['val_loss']
@@ -500,40 +512,36 @@ for this_lr in np.logspace(-5,-3,5) :
         
         test_eval = [np.nan] * len(train_eval)
 
+
+    fig_hdl, axes = plt.subplots(2, 1, clear=True, sharey = True)
+
     # Visualize F1 history
-    plt.figure(1)
-    plt.plot(epoch_count, np.transpose(np.array((train_f1, val_f1))))
-    plt.legend(['train_f1', 'val_f1' ])
-    plt.xlabel('Epoch')
-    plt.ylabel('F Score')
-    plt.title('F1 ' + model_id);
-    plt.show();
+    axes[0].plot(epoch_count, np.transpose(np.array((train_f1, val_f1, val_se, val_pp))))
+    axes[0].legend(['train_f1', 'val_f1', 'val_se', 'val_pp' ])
+    axes[0].set_xlabel('Epoch')
+    axes[0].set_ylabel('F Score')
+    axes[0].set_title('F1 ' + '_lr_{:3.3f} '.format(this_lr) );
     
-    plt.figure(2)
-    plt.plot(epoch_count, train_loss, 'r--')
-    plt.plot(epoch_count, val_loss, 'b-')
-    plt.legend(['Train', 'Val'])
-    plt.xlabel('Epoch')
-    plt.ylabel('Loss')
-    plt.title('Loss');
-    plt.show();
+    axes[1].plot(epoch_count, train_loss, 'r--')
+    axes[1].plot(epoch_count, val_loss, 'b-')
+    axes[1].legend(['Train', 'Val'])
+    axes[1].set_xlabel('Epoch')
+    axes[1].set_ylabel('Loss')
+    axes[1].set_title('Loss' + '_lr_{:3.3f} '.format(this_lr) );
         
-    plt.figure(3)
-    aux_metrics = [ [train_eval[ii], val_eval[ii], test_eval[ii]]  for ii in range(1,len(model.metrics_names)) ]
-    aux_metrics = np.transpose(np.array(aux_metrics))
+#    aux_metrics = [ [train_eval[ii], val_eval[ii], test_eval[ii]]  for ii in range(1,len(model.metrics_names)) ]
+#    aux_metrics = np.transpose(np.array(aux_metrics))
+#    
+#    axes[0,1].plot(range(3), aux_metrics, 'o--' )
+#    axes[0,1].set_xticks(np.arange(3), ('Train', 'Val', 'Test'))
+#    axes[0,1].legend(model.metrics_names[1:])
+#    axes[0,1].set_title('Métricas en los datasets ' + '_lr_{:3.3f} '.format(this_lr) );
+#    
+#    
+#    axes[1,1].plot(range(3), np.array([train_eval[0], val_eval[0], test_eval[0]]) )
+#    axes[1,1].set_xticks(np.arange(3), ('Train', 'Val', 'Test'))
+#    axes[1,1].legend(['Loss'])
+#    axes[1,1].set_title('Loss en los datasets ' + '_lr_{:3.3f} '.format(this_lr) );
     
-    plt.plot(range(3), aux_metrics, 'o--' )
-    plt.xticks(np.arange(3), ('Train', 'Val', 'Test'))
-    plt.legend(model.metrics_names)
-    plt.title('Métricas en los datasets ' + model_id);
-    plt.show();
-    
-    plt.figure(4)
-    
-    plt.plot(range(3), np.array([train_eval[0], val_eval[0], test_eval[0]]) )
-    plt.xticks(np.arange(3), ('Train', 'Val', 'Test'))
-    plt.legend(['Loss'])
-    plt.title('Loss en los datasets ' + model_id);
-    plt.show();
-    
+    plt.savefig(os.path.join( result_path, model_id + '.jpg'), dpi=300)
 

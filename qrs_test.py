@@ -13,6 +13,7 @@ Created on Fri Jan 11 15:30:03 2019
 
 # Librerias auxiliares
 import numpy as np
+from scipy.signal import medfilt
 import time
 import sys
 from fractions import Fraction
@@ -384,7 +385,10 @@ def make_dataset(records, data_path, ds_config, data_aumentation = 1, ds_name = 
         bScaleRecording = True
 #        bScaleRecording = False
         if bScaleRecording:
-            this_scale = mad(data, axis=0).reshape(field['n_sig'], 1 )
+           
+#            this_scale = mad(data, axis=0).reshape(field['n_sig'], 1 )
+            this_scale = (np.median(np.vstack([ np.max(np.abs(data[my_int(np.max([0, this_beat-w_in_samp])):my_int(np.min([field['sig_len'] * pq_ratio, this_beat+w_in_samp])) ,:] ), axis = 0 ) for this_beat in beats ]), axis = 0)).reshape(field['n_sig'], 1 )
+
             bAux = np.bitwise_or( this_scale == 0,  np.isnan(this_scale))
             if np.any(bAux):
                 # avoid scaling in case 0 or NaN
@@ -412,7 +416,7 @@ def make_dataset(records, data_path, ds_config, data_aumentation = 1, ds_name = 
 #            this_sig = this_sig * 1/this_scale + 1/500 * np.random.randn(this_sig.shape[0], this_sig.shape[1])
             this_sig = this_sig * 1/this_scale 
 
-            this_sig = (np.clip(np.round(this_sig * (2**15-1) * 0.2), -(2**15-1), 2**15-1 )).astype('int16')
+            this_sig = (np.clip(np.round(this_sig * (2**15-1) * 0.5), -(2**15-1), 2**15-1 )).astype('int16')
 
             the_sigs += [this_sig]
         
@@ -462,9 +466,9 @@ def make_dataset(records, data_path, ds_config, data_aumentation = 1, ds_name = 
 cp_path = os.path.join('.', 'checkpoint')
 os.makedirs(cp_path, exist_ok=True)
 
-#dataset_path = os.path.join('.', 'datasets')
-#os.makedirs(dataset_path, exist_ok=True)
-dataset_path = '/tmp/datasets/'
+dataset_path = os.path.join('.', 'datasets')
+os.makedirs(dataset_path, exist_ok=True)
+#dataset_path = '/tmp/datasets/'
 
 result_path = os.path.join('.', 'results')
 os.makedirs(result_path, exist_ok=True)
