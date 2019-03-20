@@ -77,7 +77,7 @@ def generator_class( datasets, batch_size=32):
 #     self.val_f1s.append(_val_f1)
 #     self.val_recalls.append(_val_recall)
 #     self.val_precisions.append(_val_precision)
-#     print('\nval_f1: {:3.3f} — val_precision: {:3.3f} — val_recall: {:3.3f}'.format(  _val_f1, _val_precision, _val_recall ) )
+#     print('\nval_f1: {:3.3g} — val_precision: {:3.3g} — val_recall: {:3.3g}'.format(  _val_f1, _val_precision, _val_recall ) )
 #           
 #     return
 
@@ -339,8 +339,8 @@ test_generator = []
 #        test_generator = generator_class(paths, batch_size);
 
 
-bDebug = True
-#bDebug = False
+#bDebug = True
+bDebug = False
 
 if bDebug :
     
@@ -348,7 +348,7 @@ if bDebug :
     check_datasets( val_generator ) 
 
 
-for this_lr in np.logspace(-6,-3,5) :
+for this_lr in np.logspace(-4.5,-3,5) :
     
     model = define_model()
     
@@ -373,7 +373,7 @@ for this_lr in np.logspace(-6,-3,5) :
                                   callbacks=[ TerminateOnNaN(),
                                               EarlyStopping(
                                                            monitor='val_t_f1', 
-                                                           min_delta=0.005, 
+                                                           min_delta=0.001, 
                                                            patience=10, 
                                                            mode='max', 
                                                            restore_best_weights=True),
@@ -401,12 +401,12 @@ for this_lr in np.logspace(-6,-3,5) :
     
     print('End training @ ' + time.strftime("%a, %d %b %Y %H:%M:%S", time.localtime()))
     time_elapsed = time.time() - start_time
-    print( 'Time elapsed to train: ' + time.strftime("%H:%M:%S", time.localtime(time_elapsed)) )
+    print( 'Time elapsed to train: ' + time.strftime("%H:%M:%S", time_elapsed) )
     
     result_path = os.path.join('.', 'results')
     os.makedirs(result_path, exist_ok=True)
     
-    model_id = time.strftime("%d_%b_%Y_%H_%M_%S", time.localtime()) + '_lr_{:3.3f}'.format(this_lr) 
+    model_id = time.strftime("%d_%b_%Y_%H_%M_%S", time.localtime()) + '_lr_{:3.3g}'.format(this_lr) 
     model.save( os.path.join( result_path, model_id + 'qrs_detector_model_' + '.h5'))  # creates a HDF5 file 'my_model.h5'
     np.save( os.path.join( result_path, model_id + '_history.npy'), {'history' : history})
 
@@ -460,7 +460,7 @@ for this_lr in np.logspace(-6,-3,5) :
     
     aux_str = 'Train\n-----\n'
     for (metric_name, metric_val) in zip(model.metrics_names, train_eval):
-        aux_str += '{}: {:3.3f} '.format(metric_name, metric_val)
+        aux_str += '{}: {:3.3g} '.format(metric_name, metric_val)
     aux_str += '\n'
     print(aux_str)
     
@@ -472,7 +472,7 @@ for this_lr in np.logspace(-6,-3,5) :
     
     aux_str = 'Val\n-----\n'
     for (metric_name, metric_val) in zip(model.metrics_names, val_eval):
-        aux_str += '{}: {:3.3f} '.format(metric_name, metric_val)
+        aux_str += '{}: {:3.3g} '.format(metric_name, metric_val)
     aux_str += '\n'
     print(aux_str)
     
@@ -483,7 +483,7 @@ for this_lr in np.logspace(-6,-3,5) :
     
             aux_str = 'Diferencia\n-------------\n'
             for (metric_name, train_val, test_val) in zip(model.metrics_names, train_eval, val_eval):
-                aux_str += '{}: {:3.3f} '.format(metric_name, train_val - test_val)
+                aux_str += '{}: {:3.3g} '.format(metric_name, train_val - test_val)
             aux_str += '\n'
             print(aux_str)
     
@@ -497,14 +497,14 @@ for this_lr in np.logspace(-6,-3,5) :
             
             aux_str = 'Test\n-----\n'
             for (metric_name, metric_val) in zip(model.metrics_names, test_eval):
-                aux_str += '{}: {:3.3f} '.format(metric_name, metric_val)
+                aux_str += '{}: {:3.3g} '.format(metric_name, metric_val)
             aux_str += '\n'
             print(aux_str)
                 
             
             aux_str = 'Diferencia\n-------------\n'
             for (metric_name, train_val, test_val) in zip(model.metrics_names, train_eval, test_eval):
-                aux_str += '{}: {:3.3f} '.format(metric_name, train_val - test_val)
+                aux_str += '{}: {:3.3g} '.format(metric_name, train_val - test_val)
             aux_str += '\n'
             print(aux_str)
         
@@ -513,21 +513,22 @@ for this_lr in np.logspace(-6,-3,5) :
         test_eval = [np.nan] * len(train_eval)
 
 
-    fig_hdl, axes = plt.subplots(2, 1, clear=True, sharey = True)
+    fig_hdl, axes = plt.subplots(2, 1, clear=True, sharex = True)
 
     # Visualize F1 history
     axes[0].plot(epoch_count, np.transpose(np.array((train_f1, val_f1, val_se, val_pp))))
+    axes[0].set_ylim([0.9, 1])
     axes[0].legend(['train_f1', 'val_f1', 'val_se', 'val_pp' ])
-    axes[0].set_xlabel('Epoch')
     axes[0].set_ylabel('F Score')
-    axes[0].set_title('F1 ' + '_lr_{:3.3f} '.format(this_lr) );
+    axes[0].set_title('F1 ' + '_lr_{:3.3g} '.format(this_lr) );
     
     axes[1].plot(epoch_count, train_loss, 'r--')
     axes[1].plot(epoch_count, val_loss, 'b-')
+    axes[1].set_ylim([0, np.max(np.vstack([train_loss, val_loss]))])
     axes[1].legend(['Train', 'Val'])
     axes[1].set_xlabel('Epoch')
     axes[1].set_ylabel('Loss')
-    axes[1].set_title('Loss' + '_lr_{:3.3f} '.format(this_lr) );
+    axes[1].set_title('Loss' + '_lr_{:3.3g} '.format(this_lr) );
         
 #    aux_metrics = [ [train_eval[ii], val_eval[ii], test_eval[ii]]  for ii in range(1,len(model.metrics_names)) ]
 #    aux_metrics = np.transpose(np.array(aux_metrics))
@@ -535,13 +536,13 @@ for this_lr in np.logspace(-6,-3,5) :
 #    axes[0,1].plot(range(3), aux_metrics, 'o--' )
 #    axes[0,1].set_xticks(np.arange(3), ('Train', 'Val', 'Test'))
 #    axes[0,1].legend(model.metrics_names[1:])
-#    axes[0,1].set_title('Métricas en los datasets ' + '_lr_{:3.3f} '.format(this_lr) );
+#    axes[0,1].set_title('Métricas en los datasets ' + '_lr_{:3.3g} '.format(this_lr) );
 #    
 #    
 #    axes[1,1].plot(range(3), np.array([train_eval[0], val_eval[0], test_eval[0]]) )
 #    axes[1,1].set_xticks(np.arange(3), ('Train', 'Val', 'Test'))
 #    axes[1,1].legend(['Loss'])
-#    axes[1,1].set_title('Loss en los datasets ' + '_lr_{:3.3f} '.format(this_lr) );
+#    axes[1,1].set_title('Loss en los datasets ' + '_lr_{:3.3g} '.format(this_lr) );
     
     plt.savefig(os.path.join( result_path, model_id + '.jpg'), dpi=300)
 
