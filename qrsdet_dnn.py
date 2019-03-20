@@ -204,6 +204,15 @@ def check_datasets( data_gen ) :
     #plt.figure(1); idx = np.random.choice(np.array((val_y==0).nonzero()).flatten(), 100, replace=False ); sigs = val_x[idx,0,:] ;plt.plot(np.transpose(sigs)); plt.ylim((-10,10))    
 
 
+def my_delta_time( t_secs ):
+    
+    t_hour_delta = t_secs // (60 * 60)
+    t_rem = t_secs % (60 * 60)
+    t_min_delta = t_rem // 60
+    t_sec_delta = t_rem % 60
+    
+    return '{:2.0f}:{:2.0f}:{:3.3f}'.format(t_hour_delta, t_min_delta, t_sec_delta)
+
 def define_model() :
     
     cant_cnn = 16
@@ -273,11 +282,19 @@ parser.add_argument( '--test_list',
                      type=str, 
                      help='Nombre de la base de datos')
 
+parser.add_argument( '--learning_rates', 
+                     default=[], 
+                     nargs="*",
+                     type=float, 
+                     help='Nombre de la base de datos')
+
 args = parser.parse_args()
 
 train_list_fn = args.train_list
 val_list_fn = args.val_list
 test_list_fn = args.test_list
+all_lr = np.array(args.learning_rates)
+
 
 
 # Fit configuration
@@ -347,8 +364,12 @@ if bDebug :
     check_datasets( train_generator ) 
     check_datasets( val_generator ) 
 
+if all_lr == []:
+    
+    all_lr = np.logspace(-4.5,-3,5)
 
-for this_lr in np.logspace(-4.5,-3,5) :
+
+for this_lr in all_lr :
     
     model = define_model()
     
@@ -401,7 +422,11 @@ for this_lr in np.logspace(-4.5,-3,5) :
     
     print('End training @ ' + time.strftime("%a, %d %b %Y %H:%M:%S", time.localtime()))
     time_elapsed = time.time() - start_time
+<<<<<<< HEAD
     print( 'Time elapsed to train: ' + time.strftime("%H:%M:%S", time_elapsed) )
+=======
+    print( 'Time elapsed to train: ' + my_delta_time(time_elapsed) )
+>>>>>>> da5eab80c7c32f628c66d1b064cf7592aa9629f4
     
     result_path = os.path.join('.', 'results')
     os.makedirs(result_path, exist_ok=True)
