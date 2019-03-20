@@ -422,11 +422,8 @@ for this_lr in all_lr :
     
     print('End training @ ' + time.strftime("%a, %d %b %Y %H:%M:%S", time.localtime()))
     time_elapsed = time.time() - start_time
-<<<<<<< HEAD
-    print( 'Time elapsed to train: ' + time.strftime("%H:%M:%S", time_elapsed) )
-=======
+
     print( 'Time elapsed to train: ' + my_delta_time(time_elapsed) )
->>>>>>> da5eab80c7c32f628c66d1b064cf7592aa9629f4
     
     result_path = os.path.join('.', 'results')
     os.makedirs(result_path, exist_ok=True)
