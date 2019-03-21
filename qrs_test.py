@@ -27,31 +27,6 @@ from scipy import signal as sig
 import argparse as ap
 from statsmodels.robust.scale import mad
 
-parser = ap.ArgumentParser(description='Script para crear datasets')
-parser.add_argument( 'db_path', 
-                     default='/home/mariano/mariano/dbs/', 
-                     type=str, 
-                     help='Path a la base de datos')
-
-parser.add_argument( '--db_name', 
-                     default='', 
-                     type=str, 
-                     help='Nombre de la base de datos')
-
-args = parser.parse_args()
-
-db_path = args.db_path
-db_name = args.db_name
-
-if db_name == '':
-    # default databases
-    db_name = ['stdb', 'INCART', 'mitdb' ,'ltdb' ,'E-OTH-12-0927-015' ,'ltafdb' ,'edb' ,'aha' ,'sddb' ,'svdb' ,'nsrdb' ,'ltstdb' , 'biosigna']
-
-if not type(db_name) == 'list':
-    # force a list        
-    db_name = [db_name]
-
-
 def get_records( db_path, db_name ):
 
     all_records = []
@@ -461,6 +436,79 @@ def make_dataset(records, data_path, ds_config, data_aumentation = 1, ds_name = 
 
     return all_signals, all_labels, ds_part
 
+parser = ap.ArgumentParser(description='Script para crear datasets')
+parser.add_argument( 'db_path', 
+                     default='/home/mariano/mariano/dbs/', 
+                     type=str, 
+                     help='Path a la base de datos')
+
+parser.add_argument( '--db_name', 
+                     default='', 
+                     nargs='*',
+                     type=str, 
+                     help='Nombre de la base de datos')
+
+parser.add_argument( '--particion', 
+                     default=[100], 
+                     nargs='+',
+                     type=int, 
+                     help='Cantidad de pacientes en el set de training-val-test')
+
+args = parser.parse_args()
+
+db_path = args.db_path
+db_name = args.db_name
+
+if db_name == '' or db_name == 'all' :
+    # default databases
+    db_name = ['stdb', 'INCART', 'mitdb' ,'ltdb' ,'E-OTH-12-0927-015' ,'ltafdb' ,'edb' ,'aha' ,'sddb' ,'svdb' ,'nsrdb' ,'ltstdb' , 'biosigna']
+
+    # Train-val-test
+    partition_mode = '3way'
+    # tamaño fijo del train, el resto val y test 50% each
+    partition = args.particion    # patients
+    
+    if np.sum( np.array(partition) ) == 1 :
+        # proportions
+        tgt_train_size = partition[0] # patients
+        if( len(partition) > 1 ) :
+            tgt_val_size = partition[1] # patients
+            if( len(partition) > 2 ) :
+                tgt_test_size = partition[2] # patients
+            else:
+                tgt_test_size = (1-tgt_train_size-tgt_val_size) # patients
+        else :
+            tgt_test_size = (1-tgt_train_size)/2 # patients
+            tgt_val_size = (1-tgt_train_size)/2 # patients
+        
+    else:
+        
+        # absolute values
+        tgt_train_size = partition[0] # patients
+        
+        if( len(partition) > 1 ) :
+            tgt_val_size = partition[1] # patients
+            if( len(partition) > 2 ) :
+                tgt_test_size = partition[2] # patients
+            else:
+                tgt_test_size = 0 # patients
+        else :
+            tgt_val_size = 0 # patients
+            tgt_test_size = 0 # patients
+            
+
+
+else :
+    
+    # Esquemas para el particionado de los datos:
+    # DB completa
+    partition_mode = 'WholeDB'
+    
+    
+if not type(db_name) != 'list':
+    # force a list        
+    
+    db_name = [db_name]
 
 
 cp_path = os.path.join('.', 'checkpoint')
@@ -473,14 +521,7 @@ os.makedirs(dataset_path, exist_ok=True)
 result_path = os.path.join('.', 'results')
 os.makedirs(result_path, exist_ok=True)
 
-# Esquemas para el particionado de los datos:
-# DB completa
-partition_mode = 'WholeDB'
 
-## Train-val-test
-#partition_mode = '3way'
-## tamaño fijo del train, el resto val y test 50% each
-#tgt_train_size = 100
 
 ds_config = { 
                 'width': .2, # s
@@ -501,8 +542,8 @@ ds_config = {
                 'data_div_val':   os.path.join(dataset_path, 'data_div_val.txt'),
                 'data_div_test':  os.path.join(dataset_path, 'data_div_test.txt'),
                 
-#                'dataset_max_size':  100*1024**2, # bytes
-                'dataset_max_size':  3e35, # bytes
+                'dataset_max_size':  800*1024**2, # bytes
+#                'dataset_max_size':  3e35, # infinito bytes
                     
                 'dataset_path':   dataset_path,
                 'results_path':   result_path,
@@ -517,11 +558,9 @@ if partition_mode == 'WholeDB':
 
     bIgnore_data_div = True
 
-bIgnore_data_div = True
+#bIgnore_data_div = True
 #bIgnore_data_div = False
 
-#bBuild_datasets = True
-bBuild_datasets = False
 
 #if  not os.path.isfile( ds_config['train_filename'] ) or bRedo_ds:
 
@@ -566,7 +605,18 @@ if bIgnore_data_div or not os.path.isfile( ds_config['data_div_train'] ):
         
     elif partition_mode == '3way':
         # propocion de cada db en el dataset
-        prop_db = size_db / np.sum(size_db)
+        cant_pacientes = np.sum(size_db)
+        
+        if tgt_train_size < 1 :
+            tgt_train_size = my_int(cant_pacientes * tgt_train_size)
+            tgt_val_size = my_int(cant_pacientes * tgt_val_size)
+            tgt_test_size = my_int(cant_pacientes * tgt_test_size)
+            
+        aux_str = 'Construyendo datasets ' ' Train: {:3.0f} - Val: {:3.0f} - Test: {:3.0f} - '.format(tgt_train_size, tgt_val_size, tgt_test_size)            
+        print( aux_str )
+        print( '#' * len(aux_str) )
+            
+        prop_db = size_db / cant_pacientes
         
 #        # particionamiento de 3 vías 
 #        # train      80%
@@ -579,10 +629,14 @@ if bIgnore_data_div or not os.path.isfile( ds_config['data_div_train'] ):
 #        tgt_db_parts_size = tgt_train_size * prop_db
 #        tgt_db_parts_size = [ my_int(ii) for ii in tgt_db_parts_size]
 
-        # iguales proporciones
-        tgt_db_parts_size = tgt_train_size * np.ones(len(prop_db)) / len(prop_db)
-        # uso ceil para evitar presencias nulas de alguna DB
-        tgt_db_parts_size = [ my_ceil(ii) for ii in tgt_db_parts_size]
+        tgt_train_db_parts_size = tgt_train_size * np.ones(len(prop_db)) / len(prop_db)
+        tgt_train_db_parts_size = [ my_ceil(ii) for ii in tgt_train_db_parts_size]
+        
+        tgt_val_db_parts_size = tgt_val_size * np.ones(len(prop_db)) / len(prop_db)
+        tgt_val_db_parts_size = [ my_ceil(ii) for ii in tgt_val_db_parts_size]
+        
+        tgt_test_db_parts_size = tgt_test_size * np.ones(len(prop_db)) / len(prop_db)
+        tgt_test_db_parts_size = [ my_ceil(ii) for ii in tgt_test_db_parts_size]
         
         db_start = np.hstack([ 0, np.cumsum(size_db[:-1]) ])
         db_end = db_start + size_db
@@ -595,23 +649,28 @@ if bIgnore_data_div or not os.path.isfile( ds_config['data_div_train'] ):
         for jj in range(len(db_name)):
             
             aux_idx = (db_idx == jj).nonzero()
-            train_patients = np.sort(np.random.choice(patient_indexes[aux_idx], np.min( [size_db[jj]-2,  tgt_db_parts_size[jj] ]), replace=False ))
+            train_patients = np.sort(np.random.choice(patient_indexes[aux_idx], np.min( [size_db[jj]-2,  tgt_train_db_parts_size[jj] ]), replace=False ))
             test_patients = np.sort(np.setdiff1d(patient_indexes[aux_idx], train_patients, assume_unique=True))
             # test y val serán la misma cantidad de pacientes
-            val_patients = np.sort(np.random.choice(test_patients, my_int( len(test_patients) * 0.5), replace=False ))
+            val_patients = np.sort(np.random.choice(test_patients, tgt_val_db_parts_size[jj], replace=False ))
             test_patients = np.setdiff1d(test_patients, val_patients, assume_unique=True)
+
+            test_patients = np.sort(np.random.choice(test_patients, tgt_test_db_parts_size[jj], replace=False ))
             
-            aux_idx = np.hstack([ (patient_list==pat_idx).nonzero() for pat_idx in train_patients]).flatten()
-            aux_val = [record_names[my_int(ii)] for ii in aux_idx]
-            train_recs += aux_val
+            if len(train_patients) > 0 :
+                aux_idx = np.hstack([ (patient_list==pat_idx).nonzero() for pat_idx in train_patients]).flatten()
+                aux_val = [record_names[my_int(ii)] for ii in aux_idx]
+                train_recs += aux_val
     
-            aux_idx = np.hstack([ (patient_list==pat_idx).nonzero() for pat_idx in val_patients]).flatten()
-            aux_val = [record_names[my_int(ii)] for ii in aux_idx]
-            val_recs += aux_val
+            if len(val_patients) > 0 :
+                aux_idx = np.hstack([ (patient_list==pat_idx).nonzero() for pat_idx in val_patients]).flatten()
+                aux_val = [record_names[my_int(ii)] for ii in aux_idx]
+                val_recs += aux_val
     
-            aux_idx = np.hstack([ (patient_list==pat_idx).nonzero() for pat_idx in test_patients]).flatten()
-            aux_val = [record_names[my_int(ii)] for ii in aux_idx]
-            test_recs += aux_val
+            if len(test_patients) > 0 :
+                aux_idx = np.hstack([ (patient_list==pat_idx).nonzero() for pat_idx in test_patients]).flatten()
+                aux_val = [record_names[my_int(ii)] for ii in aux_idx]
+                test_recs += aux_val
         
     #    # particionamiento de 3 vías 
     #    # train      80%
