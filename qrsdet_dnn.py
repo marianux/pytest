@@ -364,9 +364,9 @@ if bDebug :
     check_datasets( train_generator ) 
     check_datasets( val_generator ) 
 
-if all_lr == []:
+if all_lr.size == 0 :
     
-    all_lr = np.logspace(-4.5,-3,5)
+    all_lr = np.logspace(-5, -3, 5)
 
 
 for this_lr in all_lr :
@@ -395,7 +395,7 @@ for this_lr in all_lr :
                                               EarlyStopping(
                                                            monitor='val_t_f1', 
                                                            min_delta=0.001, 
-                                                           patience=10, 
+                                                           patience=5, 
                                                            mode='max', 
                                                            restore_best_weights=True),
                                               LearningRateScheduler(lr_sched, verbose=1)

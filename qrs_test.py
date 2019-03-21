@@ -416,7 +416,7 @@ def make_dataset(records, data_path, ds_config, data_aumentation = 1, ds_name = 
         if sys.getsizeof(all_signals) > ds_config['dataset_max_size']:
             
             cant_total_samples += all_signals.shape[0]
-            np.save( os.path.join( ds_config['dataset_path'], 'ds_' + ds_name +  '_part_' + str(ds_part) + '.npy'),  {'signals' : all_signals,  'labels'  : all_labels})
+            np.save( os.path.join( ds_config['dataset_path'], 'ds_' + ds_name +  '_part_' + str(ds_part) + '.npy'),  {'signals' : all_signals,  'labels'  : all_labels, 'cant_total_samples' : all_signals.shape[0]})
 
             ds_part += 1
             all_signals = []
@@ -424,14 +424,14 @@ def make_dataset(records, data_path, ds_config, data_aumentation = 1, ds_name = 
             
     os.remove(ds_config['cp_filename'])
 
-    if ds_part > 1 and len(all_signals) > 0:
+    if ds_part > 1 :
         # last part
-        np.save( os.path.join( ds_config['dataset_path'], 'ds_' + ds_name +  '_part_' + str(ds_part) + '.npy'),  {'signals' : all_signals,  'labels'  : all_labels , 'cant_total_samples' : cant_total_samples})
+        np.save( os.path.join( ds_config['dataset_path'], 'ds_' + ds_name +  '_part_' + str(ds_part) + '.npy'),  {'signals' : all_signals,  'labels'  : all_labels , 'cant_total_samples' : all_signals.shape[0]})
         all_signals = []
         all_labels = []
     else:
         # unique part
-        np.save( os.path.join( ds_config['dataset_path'], 'ds_' + ds_name + '.npy'),  {'signals' : all_signals,  'labels'  : all_labels , 'cant_total_samples' : len(all_signals) })
+        np.save( os.path.join( ds_config['dataset_path'], 'ds_' + ds_name + '.npy'),  {'signals' : all_signals,  'labels'  : all_labels , 'cant_total_samples' : all_signals.shape[0] })
         
 
     return all_signals, all_labels, ds_part
