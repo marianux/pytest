@@ -556,15 +556,15 @@ ds_config = {
 
 if partition_mode == 'WholeDB':
 
-    bIgnore_data_div = True
-
-#bIgnore_data_div = True
-#bIgnore_data_div = False
+    bForce_data_div = True
+else:
+    #bForce_data_div = True
+    bForce_data_div = False
 
 
 #if  not os.path.isfile( ds_config['train_filename'] ) or bRedo_ds:
 
-if bIgnore_data_div or not os.path.isfile( ds_config['data_div_train'] ):
+if bForce_data_div or not os.path.isfile( ds_config['data_div_train'] ):
 
     # Preparo los archivos
     record_names, patient_list, size_db = get_records(db_path, db_name)
@@ -652,10 +652,10 @@ if bIgnore_data_div or not os.path.isfile( ds_config['data_div_train'] ):
             train_patients = np.sort(np.random.choice(patient_indexes[aux_idx], np.min( [size_db[jj]-2,  tgt_train_db_parts_size[jj] ]), replace=False ))
             test_patients = np.sort(np.setdiff1d(patient_indexes[aux_idx], train_patients, assume_unique=True))
             # test y val serán la misma cantidad de pacientes
-            val_patients = np.sort(np.random.choice(test_patients, tgt_val_db_parts_size[jj], replace=False ))
+            val_patients = np.sort(np.random.choice(test_patients, np.min( [len(test_patients)-1, tgt_val_db_parts_size[jj] ]), replace=False ))
             test_patients = np.setdiff1d(test_patients, val_patients, assume_unique=True)
 
-            test_patients = np.sort(np.random.choice(test_patients, tgt_test_db_parts_size[jj], replace=False ))
+            test_patients = np.sort(np.random.choice(test_patients, np.min( [len(test_patients), tgt_test_db_parts_size[jj] ]), replace=False ))
             
             if len(train_patients) > 0 :
                 aux_idx = np.hstack([ (patient_list==pat_idx).nonzero() for pat_idx in train_patients]).flatten()
@@ -696,20 +696,26 @@ else:
 
 if partition_mode == '3way':
 
-    print( 'Construyendo el train' )
-    print( '#####################' )
+    if len(train_recs) > 0 :
+    
+        print( 'Construyendo el train' )
+        print( '#####################' )
+    
+        # Armo el set de entrenamiento, aumentando para que contemple desplazamientos temporales
+        signals, labels, ds_parts = make_dataset(train_recs, db_path, ds_config, ds_name = 'train', data_aumentation = 1 )
 
-    # Armo el set de entrenamiento, aumentando para que contemple desplazamientos temporales
-    signals, labels, ds_parts = make_dataset(train_recs, db_path, ds_config, ds_name = 'train', data_aumentation = 1 )
+    if len(val_recs) > 0 :
+    
+        print( 'Construyendo el val' )
+        print( '###################' )
+        # Armo el set de validacion
+        signals, labels, ds_parts  = make_dataset(val_recs, db_path, ds_config, ds_name = 'val')
 
-    print( 'Construyendo el val' )
-    print( '###################' )
-    # Armo el set de validacion
-    signals, labels, ds_parts  = make_dataset(val_recs, db_path, ds_config, ds_name = 'val')
+    if len(test_recs) > 0 :
 
-    print( 'Construyendo el test' )
-    print( '####################' )
-    # Armo el set de testeo
-    signals, labels, ds_parts = make_dataset(test_recs, db_path, ds_config, ds_name = 'test')
+        print( 'Construyendo el test' )
+        print( '####################' )
+        # Armo el set de testeo
+        signals, labels, ds_parts = make_dataset(test_recs, db_path, ds_config, ds_name = 'test')
 
         
