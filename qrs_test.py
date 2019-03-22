@@ -17,7 +17,7 @@ from scipy.signal import medfilt
 import time
 import sys
 from fractions import Fraction
-#from pandas import DataFrame
+from pandas import DataFrame
 #from IPython.display import HTML
 import os
 from glob import glob
@@ -444,15 +444,19 @@ def make_dataset(records, data_path, ds_config, data_aumentation = 1, ds_name = 
         all_signals = []
         all_labels = []
         
-        np.savetxt( os.path.join(ds_config['dataset_path'], ds_name + '.txt') , ds_parts_fn, '%s')
-        np.savetxt( os.path.join(ds_config['dataset_path'], ds_name + '_size.txt') , [ [ds_parts_fn], [ds_parts_size] ], '%s %s')
+        aux_df = DataFrame( { 'filename': ds_parts_fn, 
+                              'ds_size': ds_parts_size} )
         
     else:
         part_fn =  'ds_' + ds_name + '.npy'
         # unique part
         np.save( os.path.join( ds_config['dataset_path'], part_fn),  {'signals' : all_signals,  'labels'  : all_labels , 'cant_total_samples' : all_signals.shape[0] })
-        np.savetxt( os.path.join(ds_config['dataset_path'], ds_name + '_size.txt') , [ [part_fn], [all_signals.shape[0]] ], '%s %s')
-        
+
+        aux_df = DataFrame( { 'filename': [part_fn], 
+                              'ds_size': [all_signals.shape[0]] } )
+    
+    aux_df.to_csv( os.path.join(ds_config['dataset_path'], ds_name + '_size.txt'), sep=',', header=False, index=False)
+
 
     return all_signals, all_labels, ds_part
 
