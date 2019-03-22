@@ -152,11 +152,14 @@ def get_dataset_size(train_list_fn):
     
     if os.path.isfile( train_list_fn ):
         try:
-            paths = np.loadtxt(train_list_fn, dtype=str )
+            paths = np.loadtxt(train_list_fn, dtype=list ).tolist()
         except:
             paths = glob(train_list_fn)
     else:
         paths = glob(train_list_fn)
+    
+    if not isinstance(paths, list):
+        paths = [paths]
     
     if len(paths) == 0:
         raise EnvironmentError
@@ -220,7 +223,7 @@ def define_model() :
     size_filtros = 3
     hidden_dims  = 16
     
-    with tf.device('/cpu:0'):
+    with tf.device('/GPU:0'):
         model = Sequential()
     
         # we add a Convolution1D, which will learn filters
@@ -298,7 +301,7 @@ all_lr = np.array(args.learning_rates)
 
 
 # Fit configuration
-batch_size = 2**8
+batch_size = 2**12
 epochs = 100
 
 
@@ -395,7 +398,7 @@ for this_lr in all_lr :
                                               EarlyStopping(
                                                            monitor='val_t_f1', 
                                                            min_delta=0.001, 
-                                                           patience=5, 
+                                                           patience=10, 
                                                            mode='max', 
                                                            restore_best_weights=True),
                                               LearningRateScheduler(lr_sched, verbose=1)

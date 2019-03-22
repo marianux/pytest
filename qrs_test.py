@@ -313,6 +313,8 @@ def make_dataset(records, data_path, ds_config, data_aumentation = 1, ds_name = 
     all_signals = []
     ds_part = 1
     cant_total_samples = 0
+    ds_parts_fn = []
+    ds_parts_size = []
     
     w_in_samp = my_int( ds_config['width'] * ds_config['target_fs'])
     hw_in_samp = my_int( ds_config['width'] * ds_config['target_fs'] / 2)
@@ -415,9 +417,15 @@ def make_dataset(records, data_path, ds_config, data_aumentation = 1, ds_name = 
 
         if sys.getsizeof(all_signals) > ds_config['dataset_max_size']:
             
-            cant_total_samples += all_signals.shape[0]
-            np.save( os.path.join( ds_config['dataset_path'], 'ds_' + ds_name +  '_part_' + str(ds_part) + '.npy'),  {'signals' : all_signals,  'labels'  : all_labels, 'cant_total_samples' : all_signals.shape[0]})
+            part_fn =  'ds_' + ds_name +  '_part_' + str(ds_part) + '.npy'
 
+            ds_parts_fn += [ part_fn ]
+            ds_parts_size += [ all_signals.shape[0] ]
+            
+            cant_total_samples += all_signals.shape[0]
+             
+            np.save( os.path.join( ds_config['dataset_path'], part_fn),  {'signals' : all_signals,
+                                                                          'labels'  : all_labels})
             ds_part += 1
             all_signals = []
             all_labels = []
@@ -426,12 +434,24 @@ def make_dataset(records, data_path, ds_config, data_aumentation = 1, ds_name = 
 
     if ds_part > 1 :
         # last part
-        np.save( os.path.join( ds_config['dataset_path'], 'ds_' + ds_name +  '_part_' + str(ds_part) + '.npy'),  {'signals' : all_signals,  'labels'  : all_labels , 'cant_total_samples' : all_signals.shape[0]})
+        
+        part_fn =  'ds_' + ds_name +  '_part_' + str(ds_part) + '.npy'
+
+        ds_parts_fn += [ part_fn ]
+        ds_parts_size += [ all_signals.shape[0] ]
+        
+        np.save( os.path.join( ds_config['dataset_path'], part_fn),  {'signals' : all_signals,  'labels'  : all_labels , 'cant_total_samples' : all_signals.shape[0]})
         all_signals = []
         all_labels = []
+        
+        np.savetxt( os.path.join(ds_config['dataset_path'], ds_name + '.txt') , ds_parts_fn, '%s')
+        np.savetxt( os.path.join(ds_config['dataset_path'], ds_name + '_size.txt') , [ [ds_parts_fn], [ds_parts_size] ], '%s %s')
+        
     else:
+        part_fn =  'ds_' + ds_name + '.npy'
         # unique part
-        np.save( os.path.join( ds_config['dataset_path'], 'ds_' + ds_name + '.npy'),  {'signals' : all_signals,  'labels'  : all_labels , 'cant_total_samples' : all_signals.shape[0] })
+        np.save( os.path.join( ds_config['dataset_path'], part_fn),  {'signals' : all_signals,  'labels'  : all_labels , 'cant_total_samples' : all_signals.shape[0] })
+        np.savetxt( os.path.join(ds_config['dataset_path'], ds_name + '_size.txt') , [ [part_fn], [all_signals.shape[0]] ], '%s %s')
         
 
     return all_signals, all_labels, ds_part
@@ -553,13 +573,15 @@ ds_config = {
                 'val_filename':   os.path.join(dataset_path, 'val_' + '_'.join(db_name) + '.npy')
              } 
 
+bForce_data_div = True
+#bForce_data_div = False
+
 
 if partition_mode == 'WholeDB':
 
     bForce_data_div = True
-else:
-    #bForce_data_div = True
-    bForce_data_div = False
+
+
 
 
 #if  not os.path.isfile( ds_config['train_filename'] ) or bRedo_ds:
