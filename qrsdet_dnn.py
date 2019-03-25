@@ -247,6 +247,7 @@ def define_model( model_params ) :
     hidden_dims  = model_params['hidden_dims']
     drop_out = model_params['drop_out']
     
+    
     with tf.device('/GPU:0'):
 #    with tf.device('/CPU:0'):
         model = Sequential()
