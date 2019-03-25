@@ -163,6 +163,7 @@ def get_dataset_size(train_list_fn):
 
             paths = aux_df[0].values
             paths = paths.tolist()
+            
             train_samples = np.sum( aux_df[1].values )
             win_size_samples = aux_df[2].values
             win_size_samples = win_size_samples[0]
