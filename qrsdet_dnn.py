@@ -24,6 +24,7 @@ import argparse as ap
 import os
 from glob import glob
 import time
+from pandas import DataFrame, read_csv
 
 
 def generator_class( datasets, batch_size=32):
@@ -149,29 +150,50 @@ def f1(y_true, y_pred):
     return 2*((precision*recall)/(precision+recall+K.epsilon()))
 
 def get_dataset_size(train_list_fn):
+
+    train_samples = 0.0
+    win_size_samples = 0.0
     
     if os.path.isfile( train_list_fn ):
+        
+        aux_df = []
+        
         try:
-            paths = np.loadtxt(train_list_fn, dtype=list ).tolist()
+            aux_df = read_csv(train_list_fn, header=None, index_col=False, sep=',' )
+
+            paths = aux_df[0].values
+            paths = paths.tolist()
+            train_samples = np.sum( aux_df[1].values )
+            win_size_samples = aux_df[2].values
+            win_size_samples = win_size_samples[0]
+            
         except:
-            paths = glob(train_list_fn)
+            
+            try:
+                paths = np.loadtxt(train_list_fn, dtype=list ).tolist()
+            except:
+                paths = glob(train_list_fn)
+            
     else:
         paths = glob(train_list_fn)
     
     if not isinstance(paths, list):
         paths = [paths]
-    
-    if len(paths) == 0:
-        raise EnvironmentError
+
+    if train_samples == 0.0:
+        
+        if len(paths) == 0:
+            raise EnvironmentError
+        else:
+            cant_train_parts = len(paths)
+            for ii in range(cant_train_parts):
+                train_ds = np.load( paths[ii] )[()]
+                train_samples += train_ds['cant_total_samples']
+            
+            win_size_samples = (train_ds['signals']).shape[1]
     else:
-        cant_train_parts = len(paths)
-        train_samples = 0.0
-        for ii in range(cant_train_parts):
-            train_ds = np.load( paths[ii] )[()]
-            train_samples += train_ds['cant_total_samples']
-        
-        win_size_samples = (train_ds['signals']).shape[1]
-        
+        train_ds = np.load( paths[0] )[()]
+            
     return train_samples, win_size_samples, paths
 
 def my_int(x):
@@ -216,14 +238,16 @@ def my_delta_time( t_secs ):
     
     return '{:2.0f}:{:2.0f}:{:3.3f}'.format(t_hour_delta, t_min_delta, t_sec_delta)
 
-def define_model() :
+def define_model( model_params ) :
     
-    cant_cnn = 16
-    cant_filtros = 16
-    size_filtros = 3
-    hidden_dims  = 16
+    cant_cnn = model_params['cant_cnn']
+    cant_filtros = model_params['cant_filtros']
+    size_filtros = model_params['size_filtros']
+    hidden_dims  = model_params['hidden_dims']
+    drop_out = model_params['drop_out']
     
     with tf.device('/GPU:0'):
+#    with tf.device('/CPU:0'):
         model = Sequential()
     
         # we add a Convolution1D, which will learn filters
@@ -256,7 +280,7 @@ def define_model() :
         # We add a vanilla hidden layer:
         model.add(Dense(hidden_dims))
         model.add(Activation('relu'))
-        model.add(Dropout(0.5))
+        model.add(Dropout(drop_out))
         
         # We project onto a single unit output layer, and squash it with a sigmoid:
         model.add(Dense(1))
@@ -291,18 +315,35 @@ parser.add_argument( '--learning_rates',
                      type=float, 
                      help='Nombre de la base de datos')
 
+parser.add_argument( '--dropout', 
+                     default=0.25, 
+                     type=float, 
+                     help='Nombre de la base de datos')
+
+parser.add_argument( '--batch_size', 
+                     default=2 ** 10, 
+                     type=int, 
+                     help='Nombre de la base de datos')
+
+parser.add_argument( '--epochs', 
+                     default=10, 
+                     type=int, 
+                     help='Nombre de la base de datos')
+
 args = parser.parse_args()
 
+# data
 train_list_fn = args.train_list
 val_list_fn = args.val_list
 test_list_fn = args.test_list
-all_lr = np.array(args.learning_rates)
 
-
+# model
+drop_out = args.dropout
 
 # Fit configuration
-batch_size = 2**12
-epochs = 100
+all_lr = np.array(args.learning_rates)
+batch_size = args.batch_size
+epochs = args.epochs
 
 
 ## Train
@@ -367,14 +408,22 @@ if bDebug :
     check_datasets( train_generator ) 
     check_datasets( val_generator ) 
 
+model_params = { 'cant_cnn': 16,
+                 'cant_filtros': 16,
+                 'size_filtros': 3,
+                 'hidden_dims': 16,
+                 'hidden_dims': 16,
+                 'drop_out': drop_out}
+
 if all_lr.size == 0 :
     
     all_lr = np.logspace(-5, -3, 5)
 
 
+
 for this_lr in all_lr :
     
-    model = define_model()
+    model = define_model(model_params)
     
     print('LR: ' + str(this_lr) )
     print('##########')
