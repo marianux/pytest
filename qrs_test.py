@@ -231,33 +231,16 @@ def make_dataset(records, data_path, ds_config, data_aumentation = 1, ds_name = 
 #    for this_rec in records:
     
     start_time = time.time()
-    
-    ds_config['bIgnore_cp'] = False
-    
-    if  not os.path.isfile( ds_config['cp_filename'] ) or ds_config['bIgnore_cp']:
        
-        start_beat_idx = 0
-    #    start_beat_idx = ((np.array(records) == 'stdb/315').nonzero())[0][0]
-    #    start_beat_idx = ((np.array(records) == 'ltafdb/20').nonzero())[0][0]
+    start_beat_idx = 0
+#    start_beat_idx = ((np.array(records) == 'stdb/315').nonzero())[0][0]
+#    start_beat_idx = ((np.array(records) == 'ltafdb/20').nonzero())[0][0]
 #        start_beat_idx = ((np.array(records) == 'edb/e0204').nonzero())[0][0]
 #        start_beat_idx = ((np.array(records) == 'sddb/49').nonzero())[0][0]
-    
-        tgt_ratio = np.nan
-        bCalcTgtRatio = True
-    
-    else:
-        
-        aux_cp = np.load(ds_config['cp_filename'])[()]
-       
-        bCalcTgtRatio = not 'tgt_ratio' in aux_cp.keys()
-        
-        if bCalcTgtRatio:
-            start_beat_idx = aux_cp['start_beat_idx']
-            nQRS_QRS_ratio = aux_cp['nQRS_QRS_ratio']
-            tgt_ratio = np.nan
-        else:
-            start_beat_idx = len(records)
-            tgt_ratio = aux_cp['tgt_ratio']
+
+    tgt_ratio = np.nan
+    bCalcTgtRatio = True
+
         
         
     if bCalcTgtRatio:
@@ -282,13 +265,6 @@ def make_dataset(records, data_path, ds_config, data_aumentation = 1, ds_name = 
             this_ratio = (field['sig_len'] - samp_around_beats)/samp_around_beats
             nQRS_QRS_ratio.append(this_ratio)
     
-            if( (time.time() - start_time) > ds_config['checkpoint_time'] ):
-                # checkpointing
-                print('Checkpoint @ ' + time.strftime("%a, %d %b %Y %H:%M:%S", time.gmtime()))
-                np.save(ds_config['cp_filename'], {'nQRS_QRS_ratio' : nQRS_QRS_ratio, 'start_beat_idx' : ii+1})
-    
-                start_time = time.time()
-    
     
         # target proportion ratio 
         if np.isnan(tgt_ratio):
@@ -296,7 +272,6 @@ def make_dataset(records, data_path, ds_config, data_aumentation = 1, ds_name = 
             
         start_beat_idx = 0
     
-        np.save(ds_config['cp_filename'], {'tgt_ratio' : tgt_ratio, 'start_beat_idx': 0} )
 
     else:
 
@@ -315,7 +290,8 @@ def make_dataset(records, data_path, ds_config, data_aumentation = 1, ds_name = 
     cant_total_samples = 0
     ds_parts_fn = []
     ds_parts_size = []
-    
+    ds_parts_features = []
+
     w_in_samp = my_int( ds_config['width'] * ds_config['target_fs'])
     hw_in_samp = my_int( ds_config['width'] * ds_config['target_fs'] / 2)
     tol_in_samp = my_int( ds_config['heartbeat_tolerance'] * ds_config['target_fs'])
@@ -409,18 +385,13 @@ def make_dataset(records, data_path, ds_config, data_aumentation = 1, ds_name = 
             all_labels = np.concatenate( (all_labels, this_lab) )
             all_signals = np.concatenate( (all_signals, np.vstack(the_sigs)) )
 
-        if( (time.time() - start_time) > ds_config['checkpoint_time'] ):
-            # checkpointing
-            print('Checkpoint @ ' + time.strftime("%a, %d %b %Y %H:%M:%S", time.gmtime()))
-            np.save(ds_config['cp_filename'], {'tgt_ratio' : tgt_ratio, 'all_labels' : all_labels, 'all_signals' : all_signals, 'start_beat_idx' : ii+1})
-            start_time = time.time()
-
         if sys.getsizeof(all_signals) > ds_config['dataset_max_size']:
             
             part_fn =  'ds_' + ds_name +  '_part_' + str(ds_part) + '.npy'
 
             ds_parts_fn += [ part_fn ]
             ds_parts_size += [ all_signals.shape[0] ]
+            ds_parts_features += [ all_signals.shape[1] ]
             
             cant_total_samples += all_signals.shape[0]
              
@@ -430,7 +401,6 @@ def make_dataset(records, data_path, ds_config, data_aumentation = 1, ds_name = 
             all_signals = []
             all_labels = []
             
-    os.remove(ds_config['cp_filename'])
 
     if ds_part > 1 :
         # last part
@@ -439,13 +409,16 @@ def make_dataset(records, data_path, ds_config, data_aumentation = 1, ds_name = 
 
         ds_parts_fn += [ part_fn ]
         ds_parts_size += [ all_signals.shape[0] ]
+        ds_parts_features += [ all_signals.shape[1] ]
         
         np.save( os.path.join( ds_config['dataset_path'], part_fn),  {'signals' : all_signals,  'labels'  : all_labels , 'cant_total_samples' : all_signals.shape[0]})
         all_signals = []
         all_labels = []
         
         aux_df = DataFrame( { 'filename': ds_parts_fn, 
-                              'ds_size': ds_parts_size} )
+                              'ds_size': ds_parts_size, 
+                              'ds_features': ds_parts_size, 
+                              } )
         
     else:
         part_fn =  'ds_' + ds_name + '.npy'
@@ -453,7 +426,8 @@ def make_dataset(records, data_path, ds_config, data_aumentation = 1, ds_name = 
         np.save( os.path.join( ds_config['dataset_path'], part_fn),  {'signals' : all_signals,  'labels'  : all_labels , 'cant_total_samples' : all_signals.shape[0] })
 
         aux_df = DataFrame( { 'filename': [part_fn], 
-                              'ds_size': [all_signals.shape[0]] } )
+                              'ds_size': [all_signals.shape[0]],
+                              'ds_features': [all_signals.shape[1]] } )
     
     aux_df.to_csv( os.path.join(ds_config['dataset_path'], ds_name + '_size.txt'), sep=',', header=False, index=False)
 
@@ -558,10 +532,7 @@ ds_config = {
                 'heartbeat_tolerance': .07, # s
                 
                 'target_fs':        250, # Hz
-                'checkpoint_time':  60*5, # segundos
-                'bIgnore_cp': False,
                 
-                'cp_filename':    os.path.join(cp_path, 'cp_temp.npy'),
                 'data_div_train': os.path.join(dataset_path, 'data_div_train.txt'),
                 'data_div_val':   os.path.join(dataset_path, 'data_div_val.txt'),
                 'data_div_test':  os.path.join(dataset_path, 'data_div_test.txt'),

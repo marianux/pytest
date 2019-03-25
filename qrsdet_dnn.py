@@ -24,6 +24,7 @@ import argparse as ap
 import os
 from glob import glob
 import time
+from pandas import DataFrame, read_csv
 
 
 def generator_class( datasets, batch_size=32):
@@ -149,29 +150,49 @@ def f1(y_true, y_pred):
     return 2*((precision*recall)/(precision+recall+K.epsilon()))
 
 def get_dataset_size(train_list_fn):
+
+    train_samples = 0.0
     
     if os.path.isfile( train_list_fn ):
+        
+        aux_df = []
+        
         try:
-            paths = np.loadtxt(train_list_fn, dtype=list ).tolist()
+            aux_df = read_csv(train_list_fn, header=None, index_col=False, sep=',' )
+
+            paths = aux_df[0]
+            train_samples = np.sum( aux_df[1].values )
+            win_size_samples = aux_df[2].values
+            win_size_samples = win_size_samples[0]
+            
         except:
-            paths = glob(train_list_fn)
+            
+            try:
+                paths = np.loadtxt(train_list_fn, dtype=list ).tolist()
+            except:
+                paths = glob(train_list_fn)
+            
     else:
         paths = glob(train_list_fn)
     
     if not isinstance(paths, list):
         paths = [paths]
-    
-    if len(paths) == 0:
-        raise EnvironmentError
+
+    if train_samples == 0.0:
+        
+        if len(paths) == 0:
+            raise EnvironmentError
+        else:
+            cant_train_parts = len(paths)
+            for ii in range(cant_train_parts):
+                train_ds = np.load( paths[ii] )[()]
+                train_samples += train_ds['cant_total_samples']
+            
+            win_size_samples = (train_ds['signals']).shape[1]
     else:
-        cant_train_parts = len(paths)
-        train_samples = 0.0
-        for ii in range(cant_train_parts):
-            train_ds = np.load( paths[ii] )[()]
-            train_samples += train_ds['cant_total_samples']
-        
+        train_ds = np.load( paths[0] )[()]
         win_size_samples = (train_ds['signals']).shape[1]
-        
+            
     return train_samples, win_size_samples, paths
 
 def my_int(x):
@@ -223,7 +244,8 @@ def define_model() :
     size_filtros = 3
     hidden_dims  = 16
     
-    with tf.device('/GPU:0'):
+#    with tf.device('/GPU:0'):
+    with tf.device('/CPU:0'):
         model = Sequential()
     
         # we add a Convolution1D, which will learn filters
