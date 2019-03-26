@@ -176,6 +176,7 @@ def get_dataset_size(train_list_fn):
                 paths = glob(train_list_fn)
             
     else:
+        print( "File not found: " + train_list_fn )
         paths = glob(train_list_fn)
     
     if not isinstance(paths, list):
