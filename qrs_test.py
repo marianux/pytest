@@ -417,7 +417,7 @@ def make_dataset(records, data_path, ds_config, data_aumentation = 1, ds_name = 
         
         aux_df = DataFrame( { 'filename': ds_parts_fn, 
                               'ds_size': ds_parts_size, 
-                              'ds_features': ds_parts_size, 
+                              'ds_features': ds_parts_features, 
                               } )
         
     else:

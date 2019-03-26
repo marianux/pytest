@@ -411,10 +411,9 @@ if bDebug :
     check_datasets( val_generator ) 
 
 model_params = { 'cant_cnn': 16,
-                 'cant_filtros': 16,
+                 'cant_filtros': 32,
                  'size_filtros': 3,
-                 'hidden_dims': 16,
-                 'hidden_dims': 16,
+                 'hidden_dims': 32,
                  'drop_out': drop_out}
 
 if all_lr.size == 0 :
