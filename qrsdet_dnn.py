@@ -161,6 +161,8 @@ def get_dataset_size(train_list_fn):
         try:
             aux_df = read_csv(train_list_fn, header=None, index_col=False, sep=',' )
 
+            print( aux_df )
+
             paths = aux_df[0].values
             paths = paths.tolist()
             
@@ -176,10 +178,13 @@ def get_dataset_size(train_list_fn):
                 paths = glob(train_list_fn)
             
     else:
+        print( "File not found: " + train_list_fn )
         paths = glob(train_list_fn)
     
     if not isinstance(paths, list):
         paths = [paths]
+
+    print( paths )
 
     if train_samples == 0.0:
         
