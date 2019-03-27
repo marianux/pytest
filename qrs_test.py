@@ -230,7 +230,6 @@ def make_dataset(records, data_path, ds_config, data_aumentation = 1, ds_name = 
     # Recorro los archivos
 #    for this_rec in records:
     
-    start_time = time.time()
        
     start_beat_idx = 0
 #    start_beat_idx = ((np.array(records) == 'stdb/315').nonzero())[0][0]
@@ -239,11 +238,12 @@ def make_dataset(records, data_path, ds_config, data_aumentation = 1, ds_name = 
 #        start_beat_idx = ((np.array(records) == 'sddb/49').nonzero())[0][0]
 
     tgt_ratio = np.nan
-    bCalcTgtRatio = True
 
+
+    min_cant_latidos = 34e10;
         
         
-    if bCalcTgtRatio:
+    if np.isnan(ds_config['tgt_ratio']):
     
         for ii in np.arange(start_beat_idx, len(records)):
             
@@ -255,8 +255,12 @@ def make_dataset(records, data_path, ds_config, data_aumentation = 1, ds_name = 
             # filtro los latidos 
             beats = get_beats(annotations)
     
-            cant_latidos_total += len(beats)
+            this_cant_latidos = len(beats)
+            
+            min_cant_latidos = np.min( [min_cant_latidos, this_cant_latidos ] )
     
+            cant_latidos_total += this_cant_latidos
+            
             w_in_samp = my_int( ds_config['width'] * field['fs'])
             hw_in_samp = my_int( ds_config['width'] * field['fs'] / 2)
             tol_in_samp = my_int( ds_config['heartbeat_tolerance'] * field['fs'])
@@ -264,26 +268,25 @@ def make_dataset(records, data_path, ds_config, data_aumentation = 1, ds_name = 
             # acumulo los ratios de QRS sobre el total de muestras para mantener ese ratio en el train ds
             this_ratio = (field['sig_len'] - samp_around_beats)/samp_around_beats
             nQRS_QRS_ratio.append(this_ratio)
-    
-    
-        # target proportion ratio 
-        if np.isnan(tgt_ratio):
-            tgt_ratio = np.median(nQRS_QRS_ratio)
             
-        start_beat_idx = 0
-    
-
+        # target proportion ratio 
+        tgt_ratio = np.median(nQRS_QRS_ratio)
+                
     else:
+         tgt_ratio = ds_config['tgt_ratio']
+            
+    print('*********************************************')
+    print ('Construyendo para ' + str(ds_config['target_beats']) + ' latidos por paciente.')
+    print ('El ratio no_latido/latido es: {:3.3f}'.format(tgt_ratio) )
+    print('*********************************************')
 
+    if ds_config['target_beats'] > min_cant_latidos:
+        print('*********************************************')
+        print ('OJALDRE!  Hay registros con menos latidos: ' + str(min_cant_latidos) + ' latidos')
+        print('*********************************************')
         
-        if 'all_labels' in aux_cp.keys():
-        
-            all_labels = aux_cp['all_labels']
-            all_signals = aux_cp['all_signals']
-            start_beat_idx = aux_cp['start_beat_idx']
-        else:
-            start_beat_idx = 0
     
+    start_beat_idx = 0
     
     all_signals = []
     ds_part = 1
@@ -295,8 +298,6 @@ def make_dataset(records, data_path, ds_config, data_aumentation = 1, ds_name = 
     w_in_samp = my_int( ds_config['width'] * ds_config['target_fs'])
     hw_in_samp = my_int( ds_config['width'] * ds_config['target_fs'] / 2)
     tol_in_samp = my_int( ds_config['heartbeat_tolerance'] * ds_config['target_fs'])
-    
-    start_time = time.time()
 
 #    for this_rec in records:
     for ii in np.arange(start_beat_idx, len(records)):
@@ -316,6 +317,11 @@ def make_dataset(records, data_path, ds_config, data_aumentation = 1, ds_name = 
         beats = get_beats(annotations)
         # resample references
         beats = np.round(beats * pq_ratio)
+        
+        this_cant_beats = len(beats)
+        
+        if ds_config['target_beats'] <= this_cant_beats :
+            beats = np.sort(np.random.choice( beats, ds_config['target_beats'], replace=False ))
 
         # genero las referencias temporales para generar los vectores de entrada
         no_QRS_ranges, QRS_ranges = gen_interest_ranges( start_end=[0, np.round( field['sig_len'] * pq_ratio)  ], references = beats, width = w_in_samp )
@@ -532,6 +538,7 @@ ds_config = {
                 'heartbeat_tolerance': .07, # s
                 
                 'target_fs':        250, # Hz
+                'tgt_ratio': np.nan,
                 
                 'data_div_train': os.path.join(dataset_path, 'data_div_train.txt'),
                 'data_div_val':   os.path.join(dataset_path, 'data_div_val.txt'),
@@ -539,6 +546,7 @@ ds_config = {
                 
                 'dataset_max_size':  800*1024**2, # bytes
 #                'dataset_max_size':  3e35, # infinito bytes
+                'target_beats': 2000, # cantidad máxima de latidos por registro
                     
                 'dataset_path':   dataset_path,
                 'results_path':   result_path,
