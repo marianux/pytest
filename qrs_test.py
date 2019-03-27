@@ -27,6 +27,7 @@ from scipy import signal as sig
 import argparse as ap
 from statsmodels.robust.scale import mad
 
+
 def get_records( db_path, db_name ):
 
     all_records = []
@@ -304,6 +305,7 @@ def make_dataset(records, data_path, ds_config, data_aumentation = 1, ds_name = 
 
         this_rec = records[ii]
         print ( str(my_int(ii / len(records) * 100)) + '% Procesando:' + this_rec)
+        
         data, field = wf.rdsamp(os.path.join(data_path, this_rec) )
         annotations = wf.rdann(os.path.join(data_path, this_rec), 'atr')
 
@@ -346,7 +348,7 @@ def make_dataset(records, data_path, ds_config, data_aumentation = 1, ds_name = 
         if bScaleRecording:
            
 #            this_scale = mad(data, axis=0).reshape(field['n_sig'], 1 )
-            this_scale = (np.median(np.vstack([ np.max(np.abs(data[my_int(np.max([0, this_beat-w_in_samp])):my_int(np.min([field['sig_len'] * pq_ratio, this_beat+w_in_samp])) ,:] ), axis = 0 ) for this_beat in beats ]), axis = 0)).reshape(field['n_sig'], 1 )
+            this_scale = (np.nanmedian(np.vstack([ np.max(np.abs(data[my_int(np.max([0, this_beat-w_in_samp])):my_int(np.min([field['sig_len'] * pq_ratio, this_beat+w_in_samp])) ,:] ), axis = 0 ) for this_beat in beats ]), axis = 0)).reshape(field['n_sig'], 1 )
 
             bAux = np.bitwise_or( this_scale == 0,  np.isnan(this_scale))
             if np.any(bAux):
@@ -362,7 +364,7 @@ def make_dataset(records, data_path, ds_config, data_aumentation = 1, ds_name = 
             this_sig = np.transpose(data[my_int(this_start):my_int(this_start + w_in_samp), :]) 
                 
             # unbias and normalize
-            this_sig = this_sig - np.median(this_sig, axis=1, keepdims = True)
+            this_sig = this_sig - np.nanmedian(this_sig, axis=1, keepdims = True)
             
             if not(bScaleRecording):
                 this_scale = mad(this_sig, center = 0, axis=1 ).reshape(this_sig.shape[0],1 )
@@ -700,7 +702,7 @@ else:
 
 
 if partition_mode == '3way':
-
+    
     if len(train_recs) > 0 :
     
         print( 'Construyendo el train' )
