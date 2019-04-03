@@ -280,6 +280,11 @@ def define_model( model_params ) :
         model.add(GlobalMaxPooling1D())
         
         # We add a vanilla hidden layer:
+        model.add(Dense(2*hidden_dims))
+        model.add(Activation('relu'))
+        model.add(Dropout(drop_out))
+        
+        # We add a vanilla hidden layer:
         model.add(Dense(hidden_dims))
         model.add(Activation('relu'))
         model.add(Dropout(drop_out))
@@ -411,9 +416,9 @@ if bDebug :
     check_datasets( val_generator ) 
 
 model_params = { 'cant_cnn': 16,
-                 'cant_filtros': 32,
+                 'cant_filtros': 48,
                  'size_filtros': 3,
-                 'hidden_dims': 32,
+                 'hidden_dims': 48,
                  'drop_out': drop_out}
 
 if all_lr.size == 0 :
