@@ -134,7 +134,7 @@ def get_beats(annotation):
 
 def gen_interest_ranges( start_end, references, width):
     
-    no_QRS_ranges, QRS_ranges = [], []
+    no_qRS_ranges, qRS_ranges = [], []
     
     nrefs = len(references)
     
@@ -152,18 +152,18 @@ def gen_interest_ranges( start_end, references, width):
         this_end = references[0] - half_win - 1
         st_idx = 0
         
-        QRS_ranges = []
-        no_QRS_ranges = []
+        qRS_ranges = []
+        no_qRS_ranges = []
         
 #        while st_idx < nrefs:
 #
 #            if this_end - width > this_start:
 #                
-#                no_QRS_ranges += [ ( this_start , this_end )  ]
+#                no_qRS_ranges += [ ( this_start , this_end )  ]
 #
 #                this_qstart = references[st_idx] - half_win
 #                this_qend = this_qstart + width
-#                QRS_ranges += [ ( this_qstart, this_qend )  ]
+#                qRS_ranges += [ ( this_qstart, this_qend )  ]
 #                
 #                break
 #            
@@ -172,11 +172,18 @@ def gen_interest_ranges( start_end, references, width):
 # lo descarto porque no me interesa que pudiera ser más corto que  width               
 #                this_qstart = np.max( (0, references[st_idx] - half_win) )
 #                this_qend = this_qstart + width
-#                QRS_ranges += [ ( this_qstart, this_qend )  ]
+#                qRS_ranges += [ ( this_qstart, this_qend )  ]
                 
 #                this_start = this_end + width + 2
 #                this_end = references[st_idx+1] - half_win - 1
 #                st_idx += 1
+
+# probar esto
+#        qRS_ranges = [ (this_ref - half_win) for this_ref in references ]
+#        qRS_ranges = [ [this_ref, this_ref + width ] for this_ref in qRS_ranges ]
+#        no_qRS_ranges = np.transpose(np.hstack(qRS_ranges))
+#        no_qRS_ranges = np.transpose(np.hstack([ [ no_qRS_ranges[ii,0], no_qRS_ranges[ii-1,1] ] for ii in range(len(qRS_ranges)) ]))
+#        no_qRS_ranges = no_qRS_ranges[ np.diff(no_qRS_ranges, axis=1) >= width,:]
         
         for ii in np.arange(st_idx, nrefs):
             
@@ -185,13 +192,13 @@ def gen_interest_ranges( start_end, references, width):
             
             if this_end - width > this_start:
                 
-                no_QRS_ranges += [ ( this_start , this_end )  ]
+                no_qRS_ranges += [ ( this_start , this_end )  ]
 
             this_qstart = references[ii] - half_win
 # con numpy clipea automáticamente
 #            this_qend = np.min( ( start_end[1], this_qstart + width) )
             this_qend = this_qstart + width
-            QRS_ranges += [ ( this_qstart, this_qend )  ]
+            qRS_ranges += [ ( this_qstart, this_qend )  ]
 
 #        # última referencia
 #        this_start = this_end + width + 2
@@ -199,7 +206,7 @@ def gen_interest_ranges( start_end, references, width):
 #        
 #        if this_end - width > this_start:
 #            
-#            no_QRS_ranges += [ ( this_start , this_end )  ]
+#            no_qRS_ranges += [ ( this_start , this_end )  ]
 #    
 #        # posible último tramo
 #        this_start = this_end + width + 2
@@ -207,10 +214,10 @@ def gen_interest_ranges( start_end, references, width):
 #        
 #        if this_end - width > this_start:
 #            
-#            no_QRS_ranges += [ ( this_start , this_end )  ]
+#            no_qRS_ranges += [ ( this_start , this_end )  ]
         
     
-    return no_QRS_ranges, QRS_ranges
+    return no_qRS_ranges, qRS_ranges
 
 def my_int(x):
     
@@ -321,26 +328,30 @@ def make_dataset(records, data_path, ds_config, data_aumentation = 1, ds_name = 
         beats = np.round(beats * pq_ratio)
         
         this_cant_beats = len(beats)
-        
-        if ds_config['target_beats'] <= this_cant_beats :
-            beats = np.sort(np.random.choice( beats, ds_config['target_beats'], replace=False ))
 
         # genero las referencias temporales para generar los vectores de entrada
-        no_QRS_ranges, QRS_ranges = gen_interest_ranges( start_end=[0, np.round( field['sig_len'] * pq_ratio)  ], references = beats, width = w_in_samp )
+        no_qRS_ranges, qRS_ranges = gen_interest_ranges( start_end=[0, np.round( field['sig_len'] * pq_ratio)  ], references = beats, width = w_in_samp )
+
+        if ds_config['target_beats'] <= this_cant_beats :
+            this_beats_idx = np.sort(np.random.choice( np.arange(len(qRS_ranges)), ds_config['target_beats'], replace=False ))
+            qRS_ranges = np.vstack(qRS_ranges)
+            qRS_ranges = qRS_ranges[this_beats_idx,:]
+            qRS_ranges = qRS_ranges.tolist()
+
 
         # aumento la cantidad de segmentos no_QRS de acuerdo al ratio deseado 
-        segments_repeat = my_int(np.abs( len(no_QRS_ranges) - np.ceil( len(QRS_ranges) * tgt_ratio ) ))
-        no_QRS_ranges += [ no_QRS_ranges[np.random.randint(len(no_QRS_ranges))] for _ in range(segments_repeat) ]
+        segments_repeat = my_int(np.abs( len(no_qRS_ranges) - np.ceil( len(qRS_ranges) * tgt_ratio ) ))
+        no_qRS_ranges += [ no_qRS_ranges[np.random.randint(len(no_qRS_ranges))] for _ in range(segments_repeat) ]
         
         # genero los comienzos aumentados de acuerdo a data_aumentation
         starts = []
         
-        starts += [ (np.random.randint(this_start_end[0] - hw_in_samp, this_start_end[1] - hw_in_samp, size=data_aumentation, dtype='int')).reshape(data_aumentation,1) for this_start_end in no_QRS_ranges ]
-        starts += [ (np.random.randint(this_start_end[0] - tol_in_samp, this_start_end[0] + tol_in_samp, size=data_aumentation, dtype='int')).reshape(data_aumentation,1) for this_start_end in QRS_ranges ]
-#        starts += [ this_start_end[0] for this_start_end in QRS_ranges ]
+        starts += [ (np.random.randint(this_start_end[0] - hw_in_samp, this_start_end[1] - hw_in_samp, size=data_aumentation, dtype='int')).reshape(data_aumentation,1) for this_start_end in no_qRS_ranges ]
+        starts += [ (np.random.randint(this_start_end[0] - tol_in_samp, this_start_end[0] + tol_in_samp, size=data_aumentation, dtype='int')).reshape(data_aumentation,1) for this_start_end in qRS_ranges ]
+#        starts += [ this_start_end[0] for this_start_end in qRS_ranges ]
         
         # 0: No QRS - 1: QRS
-        this_lab = np.concatenate( ( np.zeros( ( my_int(len(no_QRS_ranges) * field['n_sig'] * data_aumentation) ,1) ), np.ones( (my_int(len(QRS_ranges) * field['n_sig'] * data_aumentation), 1) ) ), axis = 0 )
+        this_lab = np.concatenate( ( np.zeros( ( my_int(len(no_qRS_ranges) * field['n_sig'] * data_aumentation) ,1) ), np.ones( (my_int(len(qRS_ranges) * field['n_sig'] * data_aumentation), 1) ) ), axis = 0 )
         
         # unbias and normalize
         bScaleRecording = True
@@ -466,8 +477,10 @@ db_path = args.db_path
 db_name = args.db_name
 
 if db_name == '' or db_name == 'all' :
+    
     # default databases
-    db_name = ['stdb', 'INCART', 'mitdb' ,'ltdb' ,'E-OTH-12-0927-015' ,'ltafdb' ,'edb' ,'aha' ,'sddb' ,'svdb' ,'nsrdb' ,'ltstdb' , 'biosigna']
+#    db_name = ['stdb', 'INCART', 'mitdb' ,'ltdb' ,'E-OTH-12-0927-015' ,'ltafdb' ,'edb' ,'aha' ,'sddb' ,'svdb' ,'nsrdb' ,'ltstdb' , 'biosigna']
+    db_name = ['INCART', 'E-OTH-12-0927-015' , 'biosigna']
 
     # Train-val-test
     partition_mode = '3way'
@@ -540,7 +553,10 @@ ds_config = {
                 'heartbeat_tolerance': .07, # s
                 
                 'target_fs':        250, # Hz
-                'tgt_ratio': np.nan,
+#                'tgt_ratio': np.nan, # nan para que lo calcule
+                'tgt_ratio': 3.0, 
+                
+                'max_prop_3w_x_db': [0.8, 0.1, 0.1], # máxima proporción para particionar cada DB 
                 
                 'data_div_train': os.path.join(dataset_path, 'data_div_train.txt'),
                 'data_div_val':   os.path.join(dataset_path, 'data_div_val.txt'),
@@ -583,8 +599,19 @@ if bForce_data_div or not os.path.isfile( ds_config['data_div_train'] ):
     cant_patients = len(patient_indexes)
 #    record_names = np.unique(record_names)
     cant_records = len(record_names)
+
+
+    print('\n')
+    aux_str = 'Bases de datos analizadas:'
+    print( aux_str )
+    print( '#' * len(aux_str) )
+    [ print('{:s} : {:d} pacientes'.format(this_db, this_size)) for (this_db, this_size) in zip(db_name, size_db)]
     
-    print( 'Encontramos ' + str(cant_patients) + ' pacientes y ' + str(cant_records) + ' registros.' )
+    print('\n\n')
+    aux_str = 'TOTAL: {:d} pacientes y {:d} registros.'.format(cant_patients, cant_records)
+    print( '#' * len(aux_str) )
+    print( aux_str )
+    print( '#' * len(aux_str) )
     
     if partition_mode == 'WholeDB':
     
@@ -619,7 +646,8 @@ if bForce_data_div or not os.path.isfile( ds_config['data_div_train'] ):
             tgt_val_size = my_int(cant_pacientes * tgt_val_size)
             tgt_test_size = my_int(cant_pacientes * tgt_test_size)
             
-        aux_str = 'Construyendo datasets ' ' Train: {:3.0f} - Val: {:3.0f} - Test: {:3.0f} - '.format(tgt_train_size, tgt_val_size, tgt_test_size)            
+        print('\n')
+        aux_str = 'Construyendo datasets ' ' Train: {:3.0f} - Val: {:3.0f} - Test: {:3.0f}'.format(tgt_train_size, tgt_val_size, tgt_test_size)            
         print( aux_str )
         print( '#' * len(aux_str) )
             
@@ -653,16 +681,18 @@ if bForce_data_div or not os.path.isfile( ds_config['data_div_train'] ):
         val_recs = []
         test_recs = []
         
+        max_prop_3w_x_db = ds_config['max_prop_3w_x_db']
+        
         for jj in range(len(db_name)):
             
             aux_idx = (db_idx == jj).nonzero()
-            train_patients = np.sort(np.random.choice(patient_indexes[aux_idx], np.min( [size_db[jj]-2,  tgt_train_db_parts_size[jj] ]), replace=False ))
+            train_patients = np.sort(np.random.choice(patient_indexes[aux_idx], np.min( [my_int(size_db[jj]*max_prop_3w_x_db[0]),  tgt_train_db_parts_size[jj] ]), replace=False ))
             test_patients = np.sort(np.setdiff1d(patient_indexes[aux_idx], train_patients, assume_unique=True))
             # test y val serán la misma cantidad de pacientes
-            val_patients = np.sort(np.random.choice(test_patients, np.min( [len(test_patients)-1, tgt_val_db_parts_size[jj] ]), replace=False ))
+            val_patients = np.sort(np.random.choice(test_patients, np.min( [len(test_patients)-1, my_int(size_db[jj]*max_prop_3w_x_db[1]), tgt_val_db_parts_size[jj] ]), replace=False ))
             test_patients = np.setdiff1d(test_patients, val_patients, assume_unique=True)
 
-            test_patients = np.sort(np.random.choice(test_patients, np.min( [len(test_patients), tgt_test_db_parts_size[jj] ]), replace=False ))
+            test_patients = np.sort(np.random.choice(test_patients, np.min( [len(test_patients), my_int(size_db[jj]*max_prop_3w_x_db[2]), tgt_test_db_parts_size[jj] ]), replace=False ))
             
             if len(train_patients) > 0 :
                 aux_idx = np.hstack([ (patient_list==pat_idx).nonzero() for pat_idx in train_patients]).flatten()
@@ -705,6 +735,7 @@ if partition_mode == '3way':
     
     if len(train_recs) > 0 :
     
+        print('\n')
         print( 'Construyendo el train' )
         print( '#####################' )
     
@@ -713,6 +744,7 @@ if partition_mode == '3way':
 
     if len(val_recs) > 0 :
     
+        print('\n')
         print( 'Construyendo el val' )
         print( '###################' )
         # Armo el set de validacion
@@ -720,6 +752,7 @@ if partition_mode == '3way':
 
     if len(test_recs) > 0 :
 
+        print('\n')
         print( 'Construyendo el test' )
         print( '####################' )
         # Armo el set de testeo
