@@ -17,7 +17,7 @@ from scipy.signal import medfilt
 import time
 import sys
 from fractions import Fraction
-from pandas import DataFrame
+from pandas import DataFrame, read_csv
 #from IPython.display import HTML
 import os
 from glob import glob
@@ -26,6 +26,7 @@ import wfdb as wf
 from scipy import signal as sig
 import argparse as ap
 from statsmodels.robust.scale import mad
+import re
 
 
 def get_records( db_path, db_name ):
@@ -227,7 +228,7 @@ def my_ceil(x):
     
     return int(np.ceil(x))
 
-def make_dataset(records, data_path, ds_config, data_aumentation = 1, ds_name = 'none'):
+def make_dataset(records, data_path, ds_config, leads_x_rec = [], data_aumentation = 1, ds_name = 'none'):
 
     signals, labels = [], []
     
@@ -238,6 +239,8 @@ def make_dataset(records, data_path, ds_config, data_aumentation = 1, ds_name = 
     # Recorro los archivos
 #    for this_rec in records:
     
+    if len(leads_x_rec) == 0:
+        leads_x_rec = ['all'] * len(records) 
        
     start_beat_idx = 0
 #    start_beat_idx = ((np.array(records) == 'stdb/315').nonzero())[0][0]
@@ -283,15 +286,19 @@ def make_dataset(records, data_path, ds_config, data_aumentation = 1, ds_name = 
     else:
          tgt_ratio = ds_config['tgt_ratio']
             
-    print('*********************************************')
-    print ('Construyendo para ' + str(ds_config['target_beats']) + ' latidos por paciente.')
-    print ('El ratio no_latido/latido es: {:3.3f}'.format(tgt_ratio) )
-    print('*********************************************')
+         
+ 
+    if not ds_config['target_beats'] is None:
+        
+        print('*********************************************')
+        print ('Construyendo para ' + str(ds_config['target_beats']) + ' latidos por paciente.')
+        print ('El ratio no_latido/latido es: {:3.3f}'.format(tgt_ratio) )
+        print('*********************************************')
 
-    if ds_config['target_beats'] > min_cant_latidos:
-        print('*********************************************')
-        print ('OJALDRE!  Hay registros con menos latidos: ' + str(min_cant_latidos) + ' latidos')
-        print('*********************************************')
+        if ds_config['target_beats'] > min_cant_latidos:
+            print('*********************************************')
+            print ('OJALDRE!  Hay registros con menos latidos: ' + str(min_cant_latidos) + ' latidos')
+            print('*********************************************')
         
     
     start_beat_idx = 0
@@ -311,10 +318,20 @@ def make_dataset(records, data_path, ds_config, data_aumentation = 1, ds_name = 
     for ii in np.arange(start_beat_idx, len(records)):
 
         this_rec = records[ii]
+        this_leads_idx = leads_x_rec[ii]
+        
         print ( str(my_int(ii / len(records) * 100)) + '% Procesando:' + this_rec)
         
         data, field = wf.rdsamp(os.path.join(data_path, this_rec) )
         annotations = wf.rdann(os.path.join(data_path, this_rec), 'atr')
+
+        if this_leads_idx != 'all' :
+            
+            [_, this_leads_idx, _] = np.intersect1d(field['sig_name'], this_leads_idx.strip(), assume_unique=True, return_indices=True)
+            
+            if len(this_leads_idx) > 0 :
+                data = data[:, this_leads_idx]
+                field['n_sig'] = len(this_leads_idx)
 
         pq_ratio = ds_config['target_fs']/field['fs']
         resample_frac = Fraction( pq_ratio ).limit_denominator(20)
@@ -332,16 +349,27 @@ def make_dataset(records, data_path, ds_config, data_aumentation = 1, ds_name = 
         # genero las referencias temporales para generar los vectores de entrada
         no_qRS_ranges, qRS_ranges = gen_interest_ranges( start_end=[0, np.round( field['sig_len'] * pq_ratio)  ], references = beats, width = w_in_samp )
 
-        if ds_config['target_beats'] <= this_cant_beats :
+        if not ds_config['target_beats'] is None and ds_config['target_beats'] <= this_cant_beats :
             this_beats_idx = np.sort(np.random.choice( np.arange(len(qRS_ranges)), ds_config['target_beats'], replace=False ))
             qRS_ranges = np.vstack(qRS_ranges)
             qRS_ranges = qRS_ranges[this_beats_idx,:]
             qRS_ranges = qRS_ranges.tolist()
 
 
-        # aumento la cantidad de segmentos no_QRS de acuerdo al ratio deseado 
-        segments_repeat = my_int(np.abs( len(no_qRS_ranges) - np.ceil( len(qRS_ranges) * tgt_ratio ) ))
-        no_qRS_ranges += [ no_qRS_ranges[np.random.randint(len(no_qRS_ranges))] for _ in range(segments_repeat) ]
+        this_cant_no_beats = my_ceil( len(qRS_ranges) * tgt_ratio )
+        
+        if this_cant_no_beats < len(no_qRS_ranges):
+            # solo me quedo con un subset aleatorio
+            this_beats_idx = np.sort(np.random.choice( np.arange(len(no_qRS_ranges)), this_cant_no_beats, replace=False ))
+            
+            no_qRS_ranges = np.vstack(no_qRS_ranges)
+            no_qRS_ranges = no_qRS_ranges[this_beats_idx,:]
+            no_qRS_ranges = no_qRS_ranges.tolist()
+            
+        else:
+            # aumento la cantidad de segmentos no_QRS de acuerdo al ratio deseado 
+            segments_repeat = my_int(np.abs( len(no_qRS_ranges) - np.ceil( len(qRS_ranges) * tgt_ratio ) ))
+            no_qRS_ranges += [ no_qRS_ranges[np.random.randint(len(no_qRS_ranges))] for _ in range(segments_repeat) ]
         
         # genero los comienzos aumentados de acuerdo a data_aumentation
         starts = []
@@ -359,6 +387,8 @@ def make_dataset(records, data_path, ds_config, data_aumentation = 1, ds_name = 
         if bScaleRecording:
            
 #            this_scale = mad(data, axis=0).reshape(field['n_sig'], 1 )
+            
+            # usando los latidos
             this_scale = (np.nanmedian(np.vstack([ np.max(np.abs(data[my_int(np.max([0, this_beat-w_in_samp])):my_int(np.min([field['sig_len'] * pq_ratio, this_beat+w_in_samp])) ,:] ), axis = 0 ) for this_beat in beats ]), axis = 0)).reshape(field['n_sig'], 1 )
 
             bAux = np.bitwise_or( this_scale == 0,  np.isnan(this_scale))
@@ -460,74 +490,68 @@ parser.add_argument( 'db_path',
                      help='Path a la base de datos')
 
 parser.add_argument( '--db_name', 
-                     default='', 
+                     default=None, 
                      nargs='*',
                      type=str, 
                      help='Nombre de la base de datos')
 
 parser.add_argument( '--particion', 
-                     default=[100], 
+                     default=None, 
                      nargs='+',
-                     type=int, 
+                     type=float, 
                      help='Cantidad de pacientes en el set de training-val-test')
 
 args = parser.parse_args()
 
 db_path = args.db_path
 db_name = args.db_name
+# tamaño fijo del train, el resto val y test 50% each
+partition = args.particion    # patients
 
-if db_name == '' or db_name == 'all' :
-    
+known_db_names = ['stdb', 'INCART', 'mitdb' ,'ltdb' ,'E-OTH-12-0927-015' ,'ltafdb' ,'edb' ,'aha' ,'sddb' ,'svdb' ,'nsrdb' ,'ltstdb' , 'biosigna']
+
+aux_df = None
+
+if db_name is None or db_name == 'all' :
     # default databases
-#    db_name = ['stdb', 'INCART', 'mitdb' ,'ltdb' ,'E-OTH-12-0927-015' ,'ltafdb' ,'edb' ,'aha' ,'sddb' ,'svdb' ,'nsrdb' ,'ltstdb' , 'biosigna']
-    db_name = ['INCART', 'E-OTH-12-0927-015' , 'biosigna']
-
+    db_name = known_db_names
+#    db_name = ['INCART', 'E-OTH-12-0927-015' , 'biosigna']
+        
     # Train-val-test
     partition_mode = '3way'
-    # tamaño fijo del train, el resto val y test 50% each
-    partition = args.particion    # patients
-    
-    if np.sum( np.array(partition) ) == 1 :
-        # proportions
-        tgt_train_size = partition[0] # patients
-        if( len(partition) > 1 ) :
-            tgt_val_size = partition[1] # patients
-            if( len(partition) > 2 ) :
-                tgt_test_size = partition[2] # patients
-            else:
-                tgt_test_size = (1-tgt_train_size-tgt_val_size) # patients
-        else :
-            tgt_test_size = (1-tgt_train_size)/2 # patients
-            tgt_val_size = (1-tgt_train_size)/2 # patients
-        
-    else:
-        
-        # absolute values
-        tgt_train_size = partition[0] # patients
-        
-        if( len(partition) > 1 ) :
-            tgt_val_size = partition[1] # patients
-            if( len(partition) > 2 ) :
-                tgt_test_size = partition[2] # patients
-            else:
-                tgt_test_size = 0 # patients
-        else :
-            tgt_val_size = 0 # patients
-            tgt_test_size = 0 # patients
-            
-
 
 else :
     
-    # Esquemas para el particionado de los datos:
-    # DB completa
-    partition_mode = 'WholeDB'
+    if len(db_name) == 1 and os.path.isfile(db_name[0]):
+        # El dataset lo determina un archivo de configuración externo.
+        # Train-val-test
+        partition_mode = '3way'
+        
+        aux_df = read_csv(db_name[0], header= 0, names=['rec', 'lead'])
+        
+    else:
+        
+        db_name_found = np.intersect1d(known_db_names, db_name)
+        
+        if len(db_name_found) == 0:
+            
+            print('No pude encontrar: ' + str(db_name) )
+            sys.exit(1)
+
+        db_name = db_name_found.tolist()
+        
+        if partition is None:
+            # Esquemas para el particionado de los datos:
+            # DB completa, db_name debería ser una 
+            partition_mode = 'WholeDB'
+        else:
+            partition_mode = '3way'
+
     
-    
-if not type(db_name) != 'list':
-    # force a list        
-    
-    db_name = [db_name]
+#if not type(db_name) != 'list':
+#    # force a list        
+#    
+#    db_name = [db_name]
 
 
 cp_path = os.path.join('.', 'checkpoint')
@@ -564,7 +588,8 @@ ds_config = {
                 
                 'dataset_max_size':  800*1024**2, # bytes
 #                'dataset_max_size':  3e35, # infinito bytes
-                'target_beats': 2000, # cantidad máxima de latidos por registro
+#                'target_beats': 2000, # cantidad máxima de latidos por registro
+                'target_beats': None, # cantidad máxima de latidos por registro
                     
                 'dataset_path':   dataset_path,
                 'results_path':   result_path,
@@ -582,16 +607,67 @@ if partition_mode == 'WholeDB':
 
     bForce_data_div = True
 
-
-
+else:
+    
+    # 3-Way split
+    if np.sum( np.array(partition) ) == 1 :
+        # proportions
+        tgt_train_size = partition[0] # patients
+        if( len(partition) > 1 ) :
+            tgt_val_size = partition[1] # patients
+            if( len(partition) > 2 ) :
+                tgt_test_size = partition[2] # patients
+            else:
+                tgt_test_size = (1-tgt_train_size-tgt_val_size) # patients
+        else :
+            tgt_test_size = (1-tgt_train_size)/2 # patients
+            tgt_val_size = (1-tgt_train_size)/2 # patients
+        
+    else:
+        
+        # absolute values
+        tgt_train_size = partition[0] # patients
+        
+        if( len(partition) > 1 ) :
+            tgt_val_size = partition[1] # patients
+            if( len(partition) > 2 ) :
+                tgt_test_size = partition[2] # patients
+            else:
+                tgt_test_size = 0 # patients
+        else :
+            tgt_val_size = 0 # patients
+            tgt_test_size = 0 # patients
+        
 
 #if  not os.path.isfile( ds_config['train_filename'] ) or bRedo_ds:
 
 if bForce_data_div or not os.path.isfile( ds_config['data_div_train'] ):
 
-    # Preparo los archivos
-    record_names, patient_list, size_db = get_records(db_path, db_name)
-    
+    if aux_df is None:
+        # reviso las db
+        record_names, patient_list, size_db = get_records(db_path, db_name)
+        leads_x_rec = ['all'] * len(record_names)
+    else:
+        # los registros se imponen
+        aux_df = aux_df.sort_values(by='rec')
+        record_names_pedidos = aux_df['rec'].values.tolist()
+        leads_x_rec = aux_df['lead'].values.tolist()
+        [databases, size_db ]= np.unique([ re.split(r'\/', this_rec)[0] for this_rec in record_names_pedidos ] , return_counts = True)
+        
+        record_names_existentes, _, _ = get_records(db_path, databases )
+        record_names_faltantes = np.setdiff1d(record_names_pedidos, record_names_existentes, assume_unique=True)
+        
+        if len(record_names_faltantes) > 0 :
+            
+            [print('falta registro: {:s} \n'.format(this_rec)) for this_rec in record_names_faltantes]
+            sys.exit(1)
+            
+        db_name = databases.tolist()
+        record_names = record_names_pedidos
+        patient_list = np.arange(len(record_names))
+        
+        
+        
     # debug
     #record_names = record_names[0:9]
 
@@ -641,9 +717,13 @@ if bForce_data_div or not os.path.isfile( ds_config['data_div_train'] ):
         # propocion de cada db en el dataset
         cant_pacientes = np.sum(size_db)
         
-        if tgt_train_size < 1 :
+        if tgt_train_size <= 1 and tgt_train_size >= 0 :
             tgt_train_size = my_int(cant_pacientes * tgt_train_size)
+        
+        if tgt_val_size <= 1 and tgt_val_size >= 0 :
             tgt_val_size = my_int(cant_pacientes * tgt_val_size)
+            
+        if tgt_test_size <= 1 and tgt_test_size >= 0 :
             tgt_test_size = my_int(cant_pacientes * tgt_test_size)
             
         print('\n')
@@ -681,11 +761,16 @@ if bForce_data_div or not os.path.isfile( ds_config['data_div_train'] ):
         val_recs = []
         test_recs = []
         
+        train_leads_x_rec = []
+        val_leads_x_rec = []
+        test_leads_x_rec = []
+        
         max_prop_3w_x_db = ds_config['max_prop_3w_x_db']
         
         for jj in range(len(db_name)):
             
             aux_idx = (db_idx == jj).nonzero()
+            np.random.randint(len(aux_idx))
             train_patients = np.sort(np.random.choice(patient_indexes[aux_idx], np.min( [my_int(size_db[jj]*max_prop_3w_x_db[0]),  tgt_train_db_parts_size[jj] ]), replace=False ))
             test_patients = np.sort(np.setdiff1d(patient_indexes[aux_idx], train_patients, assume_unique=True))
             # test y val serán la misma cantidad de pacientes
@@ -698,16 +783,25 @@ if bForce_data_div or not os.path.isfile( ds_config['data_div_train'] ):
                 aux_idx = np.hstack([ (patient_list==pat_idx).nonzero() for pat_idx in train_patients]).flatten()
                 aux_val = [record_names[my_int(ii)] for ii in aux_idx]
                 train_recs += aux_val
+                
+                aux_val = [leads_x_rec[my_int(ii)] for ii in aux_idx]
+                train_leads_x_rec += aux_val
     
             if len(val_patients) > 0 :
                 aux_idx = np.hstack([ (patient_list==pat_idx).nonzero() for pat_idx in val_patients]).flatten()
                 aux_val = [record_names[my_int(ii)] for ii in aux_idx]
                 val_recs += aux_val
-    
+
+                aux_val = [leads_x_rec[my_int(ii)] for ii in aux_idx]
+                val_leads_x_rec += aux_val
+
             if len(test_patients) > 0 :
                 aux_idx = np.hstack([ (patient_list==pat_idx).nonzero() for pat_idx in test_patients]).flatten()
                 aux_val = [record_names[my_int(ii)] for ii in aux_idx]
                 test_recs += aux_val
+                
+                aux_val = [leads_x_rec[my_int(ii)] for ii in aux_idx]
+                test_leads_x_rec += aux_val
         
     #    # particionamiento de 3 vías 
     #    # train      80%
@@ -740,7 +834,7 @@ if partition_mode == '3way':
         print( '#####################' )
     
         # Armo el set de entrenamiento, aumentando para que contemple desplazamientos temporales
-        signals, labels, ds_parts = make_dataset(train_recs, db_path, ds_config, ds_name = 'train', data_aumentation = 1 )
+        signals, labels, ds_parts = make_dataset(train_recs, db_path, ds_config, leads_x_rec = train_leads_x_rec, ds_name = 'train', data_aumentation = 1 )
 
     if len(val_recs) > 0 :
     
@@ -748,7 +842,7 @@ if partition_mode == '3way':
         print( 'Construyendo el val' )
         print( '###################' )
         # Armo el set de validacion
-        signals, labels, ds_parts  = make_dataset(val_recs, db_path, ds_config, ds_name = 'val')
+        signals, labels, ds_parts  = make_dataset(val_recs, db_path, ds_config, leads_x_rec = val_leads_x_rec, ds_name = 'val')
 
     if len(test_recs) > 0 :
 
@@ -756,6 +850,6 @@ if partition_mode == '3way':
         print( 'Construyendo el test' )
         print( '####################' )
         # Armo el set de testeo
-        signals, labels, ds_parts = make_dataset(test_recs, db_path, ds_config, ds_name = 'test')
+        signals, labels, ds_parts = make_dataset(test_recs, db_path, ds_config, leads_x_rec = test_leads_x_rec, ds_name = 'test')
 
         
