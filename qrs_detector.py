@@ -156,7 +156,7 @@ dist_in_samp = my_int( ds_config['distance'] * ds_config['target_fs'])
 w_in_samp = my_int( ds_config['width'] * ds_config['target_fs'])
 hw_in_samp = my_int( ds_config['width'] * ds_config['target_fs'] / 2)
 
-my_win = sig.gaussian(hw_in_samp,1)
+my_win = sig.gaussian(hw_in_samp, (hw_in_samp-1)/5 )
 my_win = np.diff(my_win)
 
 for this_rec in records:
