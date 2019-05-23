@@ -72,6 +72,16 @@ def my_ceil(x):
     
     return int(np.ceil(x))
 
+def center_data(x):
+    
+    return( x - np.nanmedian(x) )
+
+def refine_location( x, my_win):
+    
+    detection_sig = np.abs(sig.filtfilt(my_win,1, x, axis=0 ))
+
+    return( np.argmax(detection_sig) )
+
 
 parser = ap.ArgumentParser(description='Deep learning based QRS detector')
 
@@ -156,8 +166,8 @@ dist_in_samp = my_int( ds_config['distance'] * ds_config['target_fs'])
 w_in_samp = my_int( ds_config['width'] * ds_config['target_fs'])
 hw_in_samp = my_int( ds_config['width'] * ds_config['target_fs'] / 2)
 
-my_win = sig.gaussian(hw_in_samp, (hw_in_samp-1)/5 )
-my_win = np.diff(my_win)
+my_win = sig.gaussian(hw_in_samp+1, (hw_in_samp-1)/5 )
+my_win = np.diff(my_win) * sig.gaussian(hw_in_samp, (hw_in_samp-1)/5 )
 
 for this_rec in records:
 
@@ -169,30 +179,64 @@ for this_rec in records:
     pq_ratio = resample_frac.numerator/ resample_frac.denominator
     data = sig.resample_poly(data, resample_frac.numerator, resample_frac.denominator )
     
-    detection_sig = np.abs(sig.filtfilt(my_win,1, data[:my_int(np.min([data.shape(0), ds_config['explore_win'] * ds_config['target_fs'] ])) ,:] ))
-    posible_beats = sig.find_peaks(detection_sig, distance=dist_in_samp)
+    detection_sig = np.abs(sig.filtfilt(my_win,1, data[:my_int(np.min([data.shape[0], ds_config['explore_win'] * ds_config['target_fs'] ])) , :], axis=0 ) )
+    
+    this_scale = np.repeat(np.nan, field['n_sig']).reshape(field['n_sig'], 1)
 
-    # scale of the whole recording
-    this_scale = (np.nanmedian(np.vstack([ np.max(np.abs(data[my_int(np.max([0, this_beat-w_in_samp])):my_int(np.min([field['sig_len'] * pq_ratio, this_beat+w_in_samp])) ,:] ), axis = 0 ) for this_beat in posible_beats ]), axis = 0)).reshape(field['n_sig'], 1 )
+    for ii in range(field['n_sig']):
+        posible_beats, _ = sig.find_peaks(detection_sig[:,ii], height = np.percentile(detection_sig[:,ii], 60) , distance = dist_in_samp)
+        posible_beats, _ = sig.find_peaks(detection_sig[:,ii], height = np.mean(detection_sig[posible_beats,ii])/2 , distance = dist_in_samp)
 
-    seq_index = np.linspace(0, w_in_samp, data.shape(0) )
+#        plt.figure(1); plt.plot(detection_sig[np.max([0, posible_beats[0]-w_in_samp]):posible_beats[-1]+w_in_samp, ii]); plt.plot( posible_beats, detection_sig[posible_beats, ii] , 'rx'); plt.show(1);        
+        
+        # scale of the whole recording
+        this_scale[ii] = np.nanmedian(np.vstack([ np.max(np.abs(center_data(data[my_int(np.max([0, this_beat-w_in_samp])):my_int(np.min([field['sig_len'] * pq_ratio, this_beat+w_in_samp])) , ii]) ), axis = 0 ) for this_beat in posible_beats ]), axis = 0) 
+
+#        plt.figure(1); plt.plot(data[np.max([0, posible_beats[0]-w_in_samp]):posible_beats[-1]+w_in_samp, ii]); plt.plot( posible_beats, data[posible_beats, ii] , 'rx'); plt.show(1);
+             
+    seq_index = np.arange(0, data.shape[0], w_in_samp )
     
     ldata_reshaped = len(seq_index)
     
-    data_reshaped = data.reshape(w_in_samp, field['n_sig'] * ldata_reshaped, order='F')
+    data_reshaped = data[:ldata_reshaped*w_in_samp,:].reshape(w_in_samp, field['n_sig'] * ldata_reshaped, order='F')
 
     # unbias and scale
-    data_reshaped = data_reshaped - np.nanmedian(data_reshaped, axis=1, keepdims = True)
+    data_reshaped = data_reshaped - np.nanmedian(data_reshaped, axis=0, keepdims = True)
     
-    data_reshaped = data_reshaped * np.repeat(1/this_scale, ldata_reshaped ).reshape(ldata_reshaped * field['n_sig'], 1)
+    data_reshaped = data_reshaped * np.repeat(1/this_scale, ldata_reshaped ).reshape(1, ldata_reshaped * field['n_sig'])
 
     data_reshaped = np.clip(np.round(data_reshaped * (2**15-1) * 0.5), -(2**15-1), 2**15-1 )
 
     # predict
+#    plt.figure(1); idx = np.random.choice(ldata_reshaped * field['n_sig'], 50, replace=False ); plt.plot(data_reshaped[:,idx]); plt.plot( np.repeat(-(2**15-1), data_reshaped.shape[0]), 'k--');  plt.plot( np.repeat((2**15-1), data_reshaped.shape[0]), 'k--'); plt.show(1);
 
-    predictions = model.predict( data_reshaped )
+#    plt.figure(1); plt.plot( data_reshaped[:,0] ); plt.show(1);
     
+    data_reshaped = np.transpose(data_reshaped).reshape(data_reshaped.shape[1], data_reshaped.shape[0], 1, order='f')
     
+#    plt.figure(1); plt.plot( pepe[10, :, :] ); plt.show(1);
+    
+    predictions = np.round(model.predict( data_reshaped ))
+#    predictions = predictions.reshape(ldata_reshaped, field['n_sig'], order='F')
+
+    qrs_idx = np.array((predictions.flatten() == 1).nonzero()).flatten()
+    qrs_refine = np.array([refine_location( np.squeeze(data_reshaped[ii,:,:]), my_win )  for ii in qrs_idx ])
+
+    refine_location( np.squeeze(data_reshaped[qrs_idx[0],:,:]), my_win ) 
+
+    seq_index = np.tile(seq_index, field['n_sig'])
+    qrs_locations = np.zeros(seq_index.shape)
+    qrs_locations[qrs_idx] = np.round( (seq_index[qrs_idx] + qrs_refine) * 1/pq_ratio )
+
+    qrs_locations = qrs_locations.reshape(ldata_reshaped, field['n_sig'], order='F')
+    
+    qrs_loc_dict = { lead_name: np.sort(qrs_locations[qrs_locations.nonzero(),ii]) for (ii, lead_name) in zip(range(field['n_sig']), field['sig_name']) }
+    
+    qrs_loc_dict['fs'] = field['fs']
+    
+    predictions = predictions.reshape(ldata_reshaped, field['n_sig'], order='F')
+    
+    plt.figure(1); sample_size = 30; idx = np.random.choice(np.array((predictions==1).nonzero()).flatten(), sample_size, replace=False ); sigs = np.transpose(np.squeeze(data_reshaped[idx,:,:])); plt.plot(sigs); plt.show(1);
     
 
 
