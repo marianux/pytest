@@ -257,7 +257,9 @@ def make_dataset(records, data_path, ds_config, leads_x_rec = [], data_aumentati
     
     all_signals = []
     ds_part = 1
-    cant_total_samples = 0
+    ds_parts_recordings = []
+    cant_total_samples = []
+    parts_samples = 0
     ds_parts_fn = []
     ds_parts_size = []
     ds_parts_features = []
@@ -266,11 +268,16 @@ def make_dataset(records, data_path, ds_config, leads_x_rec = [], data_aumentati
     hw_in_samp = my_int( ds_config['width'] * ds_config['target_fs'] / 2)
     tol_in_samp = my_int( ds_config['heartbeat_tolerance'] * ds_config['target_fs'])
 
+    default_lead_order = ['I', 'II', 'V1', 'V2', 'V3', 'V4', 'V5', 'V6']
+    target_lead_names =  ['II', 'V1']
+
+    [_, target_lead_idx, _] = np.intersect1d(default_lead_order, target_lead_names,  assume_unique=True, return_indices=True)
+
+
 #    for this_rec in records:
     for ii in np.arange(start_beat_idx, len(records)):
 
         this_rec = records[ii]
-        default_lead_order = ['I', 'II', 'V1', 'V2', 'V3', 'V4', 'V5', 'V6']
         
         print ( str(my_int(ii / len(records) * 100)) + '% Procesando:' + this_rec)
         
@@ -280,9 +287,17 @@ def make_dataset(records, data_path, ds_config, leads_x_rec = [], data_aumentati
         [this_lead_names, this_lead_idx, _] = np.intersect1d(ecg_header['sig_name'], default_lead_order, assume_unique=True, return_indices=True)
         
         if len(this_lead_idx) > 0 and len(this_lead_idx) == len(ecg_header['sig_name']):
+            
+            # reorder leads
             data = data[:, this_lead_idx]
             ecg_header['n_sig'] = len(this_lead_idx)
             ecg_header['sig_name'] = this_lead_names
+        
+        else:
+            # not enough leads found !
+            print('{:s}: No encontramos los leads necesarios:\n')
+            [ print('  + {:s}\n'.format(this_leads)) for this_leads in ecg_header['sig_name'] ]
+            
 
         pq_ratio = ds_config['target_fs']/ecg_header['fs']
         resample_frac = Fraction( pq_ratio ).limit_denominator(20)
@@ -291,100 +306,36 @@ def make_dataset(records, data_path, ds_config, leads_x_rec = [], data_aumentati
         data = sig.resample_poly(data, resample_frac.numerator, resample_frac.denominator )
 
         data = median_baseline_removal( data, fs = ds_config['target_fs'])
-        
-        # paquetizamos la señal
-        seq_index = np.arange(0, data.shape[0], w_in_samp )
-        
-        ldata_reshaped = len(seq_index)
-        
-        data_reshaped = data[:ldata_reshaped*w_in_samp,:].reshape(w_in_samp, ecg_header['n_sig'] * ldata_reshaped, order='F')
-        lead_names = this_lead_names * ldata_reshaped
     
         # nos aseguramos de escalar y encuadrar las señales en gran parte del rango dinámico.
         min_max = np.percentile( data.flatten(), [ 2.5, 97.5 ] )
         data_range = min_max[1] - min_max[0]
         min_max = min_max + 0.2 * np.array([ -data_range, data_range ])
-    
+        this_scale = np.max(np.abs(min_max))
         
-    
         # unbias and scale
-        data_reshaped = data_reshaped - np.nanmedian(data_reshaped, axis=0, keepdims = True)
+        data = data - np.nanmedian(data, axis=0, keepdims = True)
         
-        data_reshaped = data_reshaped * np.repeat(1/this_scale, ldata_reshaped ).reshape(1, ldata_reshaped * ecg_header['n_sig'])
+        data = data * np.repeat(1/this_scale, ecg_header['n_sig']).reshape(1, ecg_header['n_sig'] )
     
-        data_reshaped = np.clip(np.round(data_reshaped * (2**15-1) * 0.5), -(2**15-1), 2**15-1 )
+        data = (np.clip(np.around(data * (2**15-1) ), -(2**15-1), 2**15-1 )).astype('int16')
 
-
-        
-        # unbias and normalize
-        bScaleRecording = True
-#        bScaleRecording = False
-        if bScaleRecording:
-           
-#            this_scale = mad(data, axis=0).reshape(ecg_header['n_sig'], 1 )
-            
-            # usando los latidos
-            this_scale = (np.nanmedian(np.vstack([ np.max(np.abs(data[my_int(np.max([0, this_beat-w_in_samp])):my_int(np.min([ecg_header['sig_len'] * pq_ratio, this_beat+w_in_samp])) ,:] ), axis = 0 ) for this_beat in beats ]), axis = 0)).reshape(ecg_header['n_sig'], 1 )
-
-            bAux = np.bitwise_or( this_scale == 0,  np.isnan(this_scale))
-            if np.any(bAux):
-                # avoid scaling in case 0 or NaN
-                this_scale[bAux] = 1
-                
-                
-        starts = np.vstack(starts)
-        the_sigs = []
-        for this_start in starts :
-        
-#        try:
-            this_sig = np.transpose(data[my_int(this_start):my_int(this_start + w_in_samp), :]) 
-                
-            # unbias and normalize
-            this_sig = this_sig - np.nanmedian(this_sig, axis=1, keepdims = True)
-            
-            if not(bScaleRecording):
-                this_scale = mad(this_sig, center = 0, axis=1 ).reshape(this_sig.shape[0],1 )
-                bAux = np.bitwise_or( this_scale == 0,  np.isnan(this_scale))
-                if np.any(bAux):
-                    # avoid scaling in case 0 or NaN
-                    this_scale[bAux] = 1
-                
-            # add an small dither 
-#            this_sig = this_sig * 1/this_scale + 1/500 * np.random.randn(this_sig.shape[0], this_sig.shape[1])
-            this_sig = this_sig * 1/this_scale 
-
-            this_sig = (np.clip(np.round(this_sig * (2**15-1) * 0.5), -(2**15-1), 2**15-1 )).astype('int16')
-
-            the_sigs += [this_sig]
-        
-#        except Exception:
-#            
-#            a = 0
-                
-        
-        if len(all_signals) == 0:
-            all_labels = this_lab
-            all_signals = np.vstack(the_sigs)
-        else:
-            all_labels = np.concatenate( (all_labels, this_lab) )
-            all_signals = np.concatenate( (all_signals, np.vstack(the_sigs)) )
+        all_signals += [data]
+        parts_samples += data.shape[0]
 
         if sys.getsizeof(all_signals) > ds_config['dataset_max_size']:
             
             part_fn =  'ds_' + ds_name +  '_part_' + str(ds_part) + '.npy'
 
             ds_parts_fn += [ part_fn ]
-            ds_parts_size += [ all_signals.shape[0] ]
-            ds_parts_features += [ all_signals.shape[1] ]
-            
-            cant_total_samples += all_signals.shape[0]
+            cant_total_samples += [parts_samples]
+            ds_parts_recordings += [len(all_signals)]
              
             np.save( os.path.join( ds_config['dataset_path'], part_fn),  {'signals' : all_signals,
-                                                                          'labels'  : all_labels})
+                                                                          'lead_names'  : default_lead_order})
             ds_part += 1
             all_signals = []
-            all_labels = []
-            
+            parts_samples = 0
 
     if ds_part > 1 :
         # last part
@@ -392,10 +343,10 @@ def make_dataset(records, data_path, ds_config, leads_x_rec = [], data_aumentati
         part_fn =  'ds_' + ds_name +  '_part_' + str(ds_part) + '.npy'
 
         ds_parts_fn += [ part_fn ]
-        ds_parts_size += [ all_signals.shape[0] ]
-        ds_parts_features += [ all_signals.shape[1] ]
-        
-        np.save( os.path.join( ds_config['dataset_path'], part_fn),  {'signals' : all_signals,  'labels'  : all_labels , 'cant_total_samples' : all_signals.shape[0]})
+        cant_total_samples += [parts_samples]
+        ds_parts_recordings += [len(all_signals)]
+             
+        np.save( os.path.join( ds_config['dataset_path'], part_fn),  {'signals' : all_signals,  'lead_names'  : default_lead_order , 'cant_total_samples' : cant_total_samples})
         all_signals = []
         all_labels = []
         
