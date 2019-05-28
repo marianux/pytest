@@ -13,8 +13,6 @@ Created on Fri Jan 11 15:30:03 2019
 
 # Librerias auxiliares
 import numpy as np
-from scipy.signal import medfilt
-import time
 import sys
 from fractions import Fraction
 from pandas import DataFrame, read_csv
@@ -25,9 +23,8 @@ from glob import glob
 import wfdb as wf
 from scipy import signal as sig
 import argparse as ap
-from statsmodels.robust.scale import mad
 import re
-
+import matplotlib.pyplot as plt
 
 def get_records( db_path, db_name ):
 
@@ -121,104 +118,6 @@ def get_records( db_path, db_name ):
 
     return all_records, all_patient_list, size_db
 
-def get_beats(annotation):
-
-    no_beats = ['[', '!', ']', 'x', '(', ')', 'p', 't', 'u', '`', "'", '^', '|', '~', '+', 's', 'T', '*', 'D', '=', '"', '@']
-    
-    not_beats_mk = np.isin(annotation.symbol, no_beats, assume_unique=True)
-    beats_mk = np.logical_and( np.ones_like(not_beats_mk), np.logical_not(not_beats_mk) )
-
-    # Me quedo con las posiciones
-    beats = annotation.sample[beats_mk]
-
-    return beats
-
-def gen_interest_ranges( start_end, references, width):
-    
-    no_qRS_ranges, qRS_ranges = [], []
-    
-    nrefs = len(references)
-    
-    if nrefs > 0 and len(start_end) > 0 :
-        
-        references = np.unique(references)
-        start_end.sort()
-
-        half_win = int(np.round(width/2))
-
-        references = references[np.logical_and(references >= width, references <= (start_end[1] - width ))]
-        nrefs = len(references)
-        
-        this_start = start_end[0]
-        this_end = references[0] - half_win - 1
-        st_idx = 0
-        
-        qRS_ranges = []
-        no_qRS_ranges = []
-        
-#        while st_idx < nrefs:
-#
-#            if this_end - width > this_start:
-#                
-#                no_qRS_ranges += [ ( this_start , this_end )  ]
-#
-#                this_qstart = references[st_idx] - half_win
-#                this_qend = this_qstart + width
-#                qRS_ranges += [ ( this_qstart, this_qend )  ]
-#                
-#                break
-#            
-#            else:
-#
-# lo descarto porque no me interesa que pudiera ser más corto que  width               
-#                this_qstart = np.max( (0, references[st_idx] - half_win) )
-#                this_qend = this_qstart + width
-#                qRS_ranges += [ ( this_qstart, this_qend )  ]
-                
-#                this_start = this_end + width + 2
-#                this_end = references[st_idx+1] - half_win - 1
-#                st_idx += 1
-
-# probar esto
-#        qRS_ranges = [ (this_ref - half_win) for this_ref in references ]
-#        qRS_ranges = [ [this_ref, this_ref + width ] for this_ref in qRS_ranges ]
-#        no_qRS_ranges = np.transpose(np.hstack(qRS_ranges))
-#        no_qRS_ranges = np.transpose(np.hstack([ [ no_qRS_ranges[ii,0], no_qRS_ranges[ii-1,1] ] for ii in range(len(qRS_ranges)) ]))
-#        no_qRS_ranges = no_qRS_ranges[ np.diff(no_qRS_ranges, axis=1) >= width,:]
-        
-        for ii in np.arange(st_idx, nrefs):
-            
-            this_start = this_end + width + 2
-            this_end = references[ii] - half_win - 1
-            
-            if this_end - width > this_start:
-                
-                no_qRS_ranges += [ ( this_start , this_end )  ]
-
-            this_qstart = references[ii] - half_win
-# con numpy clipea automáticamente
-#            this_qend = np.min( ( start_end[1], this_qstart + width) )
-            this_qend = this_qstart + width
-            qRS_ranges += [ ( this_qstart, this_qend )  ]
-
-#        # última referencia
-#        this_start = this_end + width + 2
-#        this_end = references[-1] - half_win - 1
-#        
-#        if this_end - width > this_start:
-#            
-#            no_qRS_ranges += [ ( this_start , this_end )  ]
-#    
-#        # posible último tramo
-#        this_start = this_end + width + 2
-#        this_end = start_end[1]
-#        
-#        if this_end - width > this_start:
-#            
-#            no_qRS_ranges += [ ( this_start , this_end )  ]
-        
-    
-    return no_qRS_ranges, qRS_ranges
 
 def my_int(x):
     
@@ -228,20 +127,41 @@ def my_ceil(x):
     
     return int(np.ceil(x))
 
+def range_estimation( x, fs):
+    
+    win_size = my_int(5 * fs)
+    hwin_size = my_int(win_size /2 )
+    explore_win = my_int(ds_config['explore_win'] * fs)
+    
+    idx = np.arange( np.min([win_size, x.shape[0]]) , np.max([ explore_win - win_size, x.shape[0] - win_size, 0 ]), hwin_size )
+    
+    if len(idx) == 0:
+        # short recording
+        hwin_size = np.floor(x.shape[0] / 2)
+        idx = [hwin_size]
+        
+    max_abs = [ np.max(np.abs( x[ii-hwin_size:ii+hwin_size, :])) for ii in idx ]
+#   plt.figure(1); plt.plot(x[np.max([0, idx[0]-hwin_size]):idx[-1]+hwin_size, :]); plt.plot( idx, max_abs , 'rx:'); plt.show(1);
+    
+    return( np.nanmedian(max_abs) )
+
+
 def median_baseline_removal( x, fs):
     
     win_size_short = np.round(0.2 * fs)
     win_size_long = np.round(0.6 * fs)
     
-    return( x - np.array([sig.medfilt(sig.medfilt(x[:,ii], win_size_short ), win_size_long ) for ii in range(x.shape[1]) ]) )
+    if( (win_size_short % 2) == 0 ):
+        win_size_short += 1
+        
+    if( (win_size_long % 2) == 0 ):
+        win_size_long += 1
+    
+    return( x - np.transpose(np.array([sig.medfilt(sig.medfilt(x[:,ii], my_int(win_size_short) ), my_int(win_size_long) ) for ii in range(x.shape[1]) ]))  )
+
 
 def make_dataset(records, data_path, ds_config, leads_x_rec = [], data_aumentation = 1, ds_name = 'none'):
 
-    signals, labels = [], []
-    
-    
-    nQRS_QRS_ratio = []
-    cant_latidos_total = 0
 
     # Recorro los archivos
 #    for this_rec in records:
@@ -257,16 +177,9 @@ def make_dataset(records, data_path, ds_config, leads_x_rec = [], data_aumentati
     
     all_signals = []
     ds_part = 1
-    ds_parts_recordings = []
     cant_total_samples = []
     parts_samples = 0
     ds_parts_fn = []
-    ds_parts_size = []
-    ds_parts_features = []
-
-    w_in_samp = my_int( ds_config['width'] * ds_config['target_fs'])
-    hw_in_samp = my_int( ds_config['width'] * ds_config['target_fs'] / 2)
-    tol_in_samp = my_int( ds_config['heartbeat_tolerance'] * ds_config['target_fs'])
 
     default_lead_order = ['I', 'II', 'V1', 'V2', 'V3', 'V4', 'V5', 'V6']
     target_lead_names =  ['II', 'V1']
@@ -286,7 +199,7 @@ def make_dataset(records, data_path, ds_config, leads_x_rec = [], data_aumentati
         
         [this_lead_names, this_lead_idx, _] = np.intersect1d(ecg_header['sig_name'], default_lead_order, assume_unique=True, return_indices=True)
         
-        if len(this_lead_idx) > 0 and len(this_lead_idx) == len(ecg_header['sig_name']):
+        if len(this_lead_idx) > 0 and len(this_lead_idx) == len(default_lead_order):
             
             # reorder leads
             data = data[:, this_lead_idx]
@@ -304,21 +217,17 @@ def make_dataset(records, data_path, ds_config, leads_x_rec = [], data_aumentati
         #recalculo el ratio real
         pq_ratio = resample_frac.numerator/ resample_frac.denominator
         data = sig.resample_poly(data, resample_frac.numerator, resample_frac.denominator )
-
+        ecg_header['n_sig'] = data.shape[0]
+            
         data = median_baseline_removal( data, fs = ds_config['target_fs'])
-    
-        # nos aseguramos de escalar y encuadrar las señales en gran parte del rango dinámico.
-        min_max = np.percentile( data.flatten(), [ 2.5, 97.5 ] )
-        data_range = min_max[1] - min_max[0]
-        min_max = min_max + 0.2 * np.array([ -data_range, data_range ])
-        this_scale = np.max(np.abs(min_max))
+# x_st = 200000; x_off = 10000; plt.plot(data[x_st:x_st+x_off,:]); plt.show()
         
-        # unbias and scale
-        data = data - np.nanmedian(data, axis=0, keepdims = True)
+        this_scale = range_estimation( data, fs = ds_config['target_fs'])
         
-        data = data * np.repeat(1/this_scale, ecg_header['n_sig']).reshape(1, ecg_header['n_sig'] )
-    
-        data = (np.clip(np.around(data * (2**15-1) ), -(2**15-1), 2**15-1 )).astype('int16')
+        k_conv = 0.6*(2**15-1);
+        
+        data = (np.clip(np.around(data *k_conv/this_scale ), -(2**15-1), 2**15-1 )).astype('int16')
+#        plt.figure(1); plt.plot(data); plt.plot([0, data.shape[0]], [k_conv, k_conv], 'r:'); plt.plot([0, data.shape[0]], [-k_conv, -k_conv], 'r:'); this_axes = plt.gca(); this_axes.set_ylim([-(2**15-1), 2**15-1]); plt.show(1);
 
         all_signals += [data]
         parts_samples += data.shape[0]
@@ -329,7 +238,6 @@ def make_dataset(records, data_path, ds_config, leads_x_rec = [], data_aumentati
 
             ds_parts_fn += [ part_fn ]
             cant_total_samples += [parts_samples]
-            ds_parts_recordings += [len(all_signals)]
              
             np.save( os.path.join( ds_config['dataset_path'], part_fn),  {'signals' : all_signals,
                                                                           'lead_names'  : default_lead_order})
@@ -344,30 +252,26 @@ def make_dataset(records, data_path, ds_config, leads_x_rec = [], data_aumentati
 
         ds_parts_fn += [ part_fn ]
         cant_total_samples += [parts_samples]
-        ds_parts_recordings += [len(all_signals)]
              
         np.save( os.path.join( ds_config['dataset_path'], part_fn),  {'signals' : all_signals,  'lead_names'  : default_lead_order , 'cant_total_samples' : cant_total_samples})
         all_signals = []
-        all_labels = []
         
         aux_df = DataFrame( { 'filename': ds_parts_fn, 
-                              'ds_size': ds_parts_size, 
-                              'ds_features': ds_parts_features, 
+                              'ds_size': cant_total_samples
                               } )
         
     else:
+        
         part_fn =  'ds_' + ds_name + '.npy'
         # unique part
-        np.save( os.path.join( ds_config['dataset_path'], part_fn),  {'signals' : all_signals,  'labels'  : all_labels , 'cant_total_samples' : all_signals.shape[0] })
+        np.save( os.path.join( ds_config['dataset_path'], part_fn),  {'signals' : all_signals,  'lead_names'  : default_lead_order , 'cant_total_samples' : cant_total_samples})
 
         aux_df = DataFrame( { 'filename': [part_fn], 
-                              'ds_size': [all_signals.shape[0]],
-                              'ds_features': [all_signals.shape[1]] } )
+                              'ds_size': [parts_samples]
+                               } )
     
     aux_df.to_csv( os.path.join(ds_config['dataset_path'], ds_name + '_size.txt'), sep=',', header=False, index=False)
 
-
-    return all_signals, all_labels, ds_part
 
 parser = ap.ArgumentParser(description='Script para crear datasets para los experimentos con GANs')
 parser.add_argument( 'db_path', 
@@ -398,7 +302,7 @@ known_db_names = ['INCART', 'E-OTH-12-0927-015', 'biosigna']
 
 aux_df = None
 
-if db_name is None or db_name == 'all' :
+if db_name is None:
     # default databases
     db_name = known_db_names
 #    db_name = ['INCART', 'E-OTH-12-0927-015' , 'biosigna']
@@ -456,7 +360,11 @@ ds_config = {
                 'width': 10, # s
                 
                 'target_fs':        200, # Hz
-                
+
+                'heartbeat_width': .09, # (s) Width of the type of heartbeat to seek for
+                'distance':  .3, # (s) Minimum separation between consequtive QRS complexes
+                'explore_win': 60, # (s) window to seek for possible heartbeats to calculate scales and offset
+
                 'max_prop_3w_x_db': [0.8, 0.1, 0.1], # máxima proporción para particionar cada DB 
                 
                 'data_div_train': os.path.join(dataset_path, 'data_div_train.txt'),
@@ -711,7 +619,7 @@ if partition_mode == '3way':
         print( '#####################' )
     
         # Armo el set de entrenamiento, aumentando para que contemple desplazamientos temporales
-        signals, labels, ds_parts = make_dataset(train_recs, db_path, ds_config, leads_x_rec = train_leads_x_rec, ds_name = 'train', data_aumentation = 1 )
+        make_dataset(train_recs, db_path, ds_config, leads_x_rec = train_leads_x_rec, ds_name = 'train', data_aumentation = 1 )
 
     if len(val_recs) > 0 :
     
@@ -719,7 +627,7 @@ if partition_mode == '3way':
         print( 'Construyendo el val' )
         print( '###################' )
         # Armo el set de validacion
-        signals, labels, ds_parts  = make_dataset(val_recs, db_path, ds_config, leads_x_rec = val_leads_x_rec, ds_name = 'val')
+        make_dataset(val_recs, db_path, ds_config, leads_x_rec = val_leads_x_rec, ds_name = 'val')
 
     if len(test_recs) > 0 :
 
@@ -727,6 +635,6 @@ if partition_mode == '3way':
         print( 'Construyendo el test' )
         print( '####################' )
         # Armo el set de testeo
-        signals, labels, ds_parts = make_dataset(test_recs, db_path, ds_config, leads_x_rec = test_leads_x_rec, ds_name = 'test')
+        make_dataset(test_recs, db_path, ds_config, leads_x_rec = test_leads_x_rec, ds_name = 'test')
 
         
