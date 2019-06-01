@@ -25,9 +25,9 @@ import os
 from glob import glob
 import time
 from pandas import DataFrame, read_csv
-    
+from wgan import WGAN
 
-def generator_class( datasets, batch_size=32):
+def data_generator( datasets, batch_size=32):
     """A generator yields (source, target) arrays for training."""
 
     while True:
@@ -55,7 +55,7 @@ def generator_class( datasets, batch_size=32):
                 
                 sample_idx = np.random.choice(np.arange(cant_samples-win_in_samp), batch_size, replace=False )
                 
-                xx = [ train_x[ ii:ii+batch_size,:] for ii in sample_idx ]
+                xx = [ train_x[ jj:jj+batch_size,:] for jj in sample_idx ]
                 xx = np.stack(xx, axis=2)
 
                 # Get the samples you'll use in this batch
@@ -162,11 +162,15 @@ def get_dataset_size(train_list_fn):
         
         aux_df = []
         
+        base_path, _ = os.path.split(train_list_fn)
+        
         try:
             aux_df = read_csv(train_list_fn, header=None, index_col=False, sep=',' )
 
             paths = aux_df[0].values
             paths = paths.tolist()
+            
+            paths = [ os.path.join(base_path, each_ds) for each_ds in  paths]
             
             train_samples = np.sum( aux_df[1].values )
             train_recordings = np.sum( aux_df[2].values )
@@ -350,8 +354,7 @@ if train_list_fn == '':
 
 train_samples, train_recordings, train_paths = get_dataset_size(train_list_fn)
 
-train_generator = generator_class(train_paths, batch_size)
-
+train_generator = data_generator(train_paths, batch_size)
 
 if val_list_fn == '':
     
@@ -363,7 +366,7 @@ else:
     
     val_samples, val_recordings, val_paths = get_dataset_size(val_list_fn)
     
-    val_generator = generator_class(val_paths, batch_size)
+    val_generator = data_generator(val_paths, batch_size)
 
 
 test_generator = []
@@ -379,7 +382,7 @@ test_generator = []
 #        train_ds = np.load(os.path.join(ds_config['dataset_path'], 'ds_val_part_' + str(cant_val_parts) + '.npy' ))[()]
 #        val_samples = train_ds['cant_total_samples']
 #        
-#        val_generator = generator_class(paths, batch_size);
+#        val_generator = data_generator(paths, batch_size);
 #
 #    ## Test
 #    
@@ -393,7 +396,7 @@ test_generator = []
 #        train_ds = np.load(os.path.join(ds_config['dataset_path'], 'ds_test_part_' + str(cant_test_parts) + '.npy' ))[()]
 #        test_samples = train_ds['cant_total_samples']
 #        
-#        test_generator = generator_class(paths, batch_size);
+#        test_generator = data_generator(paths, batch_size);
 
 
 #bDebug = True
@@ -411,13 +414,21 @@ model_params = { 'cant_cnn': 16,
                  'drop_out': drop_out}
 
 target_lead_names =  ['II', 'V1']
+default_lead_order = ['I', 'II', 'V1', 'V2', 'V3', 'V4', 'V5', 'V6']
+
+[_, target_lead_idx, _] = np.intersect1d(default_lead_order, target_lead_names,  assume_unique=True, return_indices=True)
+
 ds_config = { 
                 'width': 10, # s
                 'fs':    200 # Hz
                 
             }
 
-win_in_samp = my_int(ds_config['width'] * ds_config['width'])
+win_in_samp = my_int(ds_config['width'] * ds_config['fs'])
+
+my_gan = WGAN( ecg_samp = win_in_samp, leads_generator_idx = target_lead_idx, lead_names = default_lead_order)
+
+my_gan.train(train_generator, epochs=epochs, batch_size=batch_size, sample_interval=50)
 
 if all_lr.size == 0 :
     
@@ -504,7 +515,7 @@ for this_lr in all_lr :
                 
                 test_samples, test_features, test_paths = get_dataset_size(test_list_fn)
                 
-                test_generator = generator_class(test_paths, batch_size)
+                test_generator = data_generator(test_paths, batch_size)
                 
                 test_steps = my_ceil(test_samples / batch_size)
 

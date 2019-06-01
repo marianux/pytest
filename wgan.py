@@ -17,11 +17,18 @@ import sys
 import numpy as np
 
 class WGAN():
-    def __init__(self, ecg_samp, ecg_leads):
+    def __init__(self, ecg_samp = 2000, leads_generator_idx = [1, 2], lead_names = ['I', 'II', 'V1', 'V2', 'V3', 'V4', 'V5', 'V6'] ):
+        
         self.ecg_samp = ecg_samp
-        self.ecg_leads = 12
-        self.ecg_shape = (self.ecg_samp, self.ecg_leads)
-        self.latent_dim = (self.ecg_samp, 2)
+        self.ecg_leads = len(lead_names)
+        self.channels = 1
+        self.k_ui16 = 2**15-1
+        self.lead_names = lead_names
+        
+        self.leads_generator_idx = leads_generator_idx
+        
+        self.ecg_shape = (self.ecg_samp, self.ecg_leads, self.channels)
+        self.latent_dim = self.ecg_samp * len(self.leads_generator_idx)
 
         # Following parameter and optimizer set as recommended in paper
         self.n_critic = 5
@@ -60,7 +67,7 @@ class WGAN():
 
         model = Sequential()
 
-        model.add(Dense(128 * 7 * 7, activation="relu", input_dim=self.latent_dim))
+        model.add(Dense(128 * 7 * 7, activation="relu", input_dim=self.latent_dim ))
         model.add(Reshape((7, 7, 128)))
         model.add(UpSampling2D())
         model.add(Conv2D(128, kernel_size=4, padding="same"))
@@ -110,15 +117,16 @@ class WGAN():
 
         return Model(img, validity)
 
-    def train(self, epochs, batch_size=128, sample_interval=50):
+    def train(self, data_gen, epochs = 100, batch_size=128, sample_interval=50):
 
-        # Load the dataset
-        (X_train, _), (_, _) = mnist.load_data()
+#        # Load the dataset
+#        (X_train, _), (_, _) = mnist.load_data()
+#
+#        # Rescale -1 to 1
+#        X_train = (X_train.astype(np.float32) - 127.5) / 127.5
+#        X_train = np.expand_dims(X_train, axis=3)
 
-        # Rescale -1 to 1
-        X_train = (X_train.astype(np.float32) - 127.5) / 127.5
-        X_train = np.expand_dims(X_train, axis=3)
-
+        
         # Adversarial ground truths
         valid = -np.ones((batch_size, 1))
         fake = np.ones((batch_size, 1))
@@ -131,18 +139,28 @@ class WGAN():
                 #  Train Discriminator
                 # ---------------------
 
-                # Select a random batch of images
-                idx = np.random.randint(0, X_train.shape[0], batch_size)
-                imgs = X_train[idx]
+#                # Select a random batch of images
+#                idx = np.random.randint(0, X_train.shape[0], batch_size)
+#                imgs = X_train[idx]
+#                
+#                # Sample noise as generator input
+#                noise = np.random.normal(0, 1, (batch_size, self.latent_dim))
+
+                X_train = next(data_gen)
                 
-                # Sample noise as generator input
-                noise = np.random.normal(0, 1, (batch_size, self.latent_dim))
+                X_train = X_train / self.k_ui16
+                
+                latent_img = X_train[:, self.leads_generator_idx]
+                
+                latent_img =+ np.random.normal(0, np.sqrt(np.var(latent_img)/20), (batch_size, self.latent_dim))                
+
+                X_train = np.expand_dims(X_train, axis=3)
 
                 # Generate a batch of new images
-                gen_imgs = self.generator.predict(noise)
+                gen_imgs = self.generator.predict(latent_img)
 
                 # Train the critic
-                d_loss_real = self.critic.train_on_batch(imgs, valid)
+                d_loss_real = self.critic.train_on_batch(X_train, valid)
                 d_loss_fake = self.critic.train_on_batch(gen_imgs, fake)
                 d_loss = 0.5 * np.add(d_loss_fake, d_loss_real)
 
@@ -157,32 +175,31 @@ class WGAN():
             #  Train Generator
             # ---------------------
 
-            g_loss = self.combined.train_on_batch(noise, valid)
+            g_loss = self.combined.train_on_batch(latent_img, valid)
 
             # Plot the progress
             print ("%d [D loss: %f] [G loss: %f]" % (epoch, 1 - d_loss[0], 1 - g_loss[0]))
 
             # If at save interval => save generated image samples
             if epoch % sample_interval == 0:
-                self.sample_images(epoch)
+                self.sample_images(epoch, latent_img, X_train)
 
-    def sample_images(self, epoch):
-        r, c = 5, 5
-        noise = np.random.normal(0, 1, (r * c, self.latent_dim))
-        gen_imgs = self.generator.predict(noise)
+    def sample_images(self, epoch, latent_img, X_train):
+        
+        gen_imgs = self.generator.predict(latent_img[0,:,:,:])
 
+        real_imgs = np.squeeze(latent_img[0,:,:,:])
         # Rescale images 0 - 1
-        gen_imgs = 0.5 * gen_imgs + 0.5
+        gen_imgs = np.round(self.k_ui16 * np.squeeze(gen_imgs))
 
-        fig, axs = plt.subplots(r, c)
-        cnt = 0
-        for i in range(r):
-            for j in range(c):
-                axs[i,j].imshow(gen_imgs[cnt, :,:,0], cmap='gray')
-                axs[i,j].axis('off')
-                cnt += 1
-        fig.savefig("images/mnist_%d.png" % epoch)
-        plt.close()
+    
+        for ii in range(real_imgs.shape[1]):
+        
+            fig = plt.figure(1)
+            plt.plot( np.hstack( [real_imgs[:,ii], gen_imgs[:,ii]] ) )
+            plt.title( 'Lead {:s}'.format(self.lead_names[ii]) )
+            fig.savefig("images/{:d}_lead_{:s}.png".format(epoch, self.lead_names[ii] ) )
+            plt.close()
 
 
 if __name__ == '__main__':
