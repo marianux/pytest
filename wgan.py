@@ -35,17 +35,20 @@ class WGAN():
         self.clip_value = 0.01
         optimizer = RMSprop(lr=0.00005)
 
+        print('Build GAN critic')
         # Build and compile the critic
         self.critic = self.build_critic()
         self.critic.compile(loss=self.wasserstein_loss,
             optimizer=optimizer,
             metrics=['accuracy'])
 
+        print('Build GAN generator')
+        
         # Build the generator
         self.generator = self.build_generator()
 
         # The generator takes noise as input and generated imgs
-        z = Input(shape=self.latent_dim)
+        z = Input(shape=(self.latent_dim,))
         img = self.generator(z)
 
         # For the combined model we will only train the generator
@@ -82,7 +85,7 @@ class WGAN():
 
         model.summary()
 
-        noise = Input(shape=self.latent_dim)
+        noise = Input(shape=(self.latent_dim,))
         img = model(noise)
 
         return Model(noise, img)
@@ -150,7 +153,8 @@ class WGAN():
                 
                 X_train = X_train / self.k_ui16
                 
-                latent_img = X_train[:, self.leads_generator_idx]
+                latent_img = X_train[:, :, self.leads_generator_idx]
+                latent_img = latent_img.reshape(latent_img.shape[0], latent_img.shape[1]*latent_img.shape[2], order='F')
                 
                 latent_img =+ np.random.normal(0, np.sqrt(np.var(latent_img)/20), (batch_size, self.latent_dim))                
 

@@ -55,8 +55,9 @@ def data_generator( datasets, batch_size=32):
                 
                 sample_idx = np.random.choice(np.arange(cant_samples-win_in_samp), batch_size, replace=False )
                 
-                xx = [ train_x[ jj:jj+batch_size,:] for jj in sample_idx ]
-                xx = np.stack(xx, axis=2)
+                xx = [ train_x[ jj:jj+win_in_samp,:] for jj in sample_idx ]
+                
+                xx = np.stack(xx, axis=0)
 
                 # Get the samples you'll use in this batch
           
@@ -347,7 +348,7 @@ epochs = args.epochs
 
 
 ## Train
-print('Build train generator ...')
+print('Build train data-generator ...')
 
 if train_list_fn == '':
     raise EnvironmentError
@@ -362,7 +363,7 @@ if val_list_fn == '':
     
 else:
     
-    print('Build val generator ...')
+    print('Build val data-generator ...')
     
     val_samples, val_recordings, val_paths = get_dataset_size(val_list_fn)
     
