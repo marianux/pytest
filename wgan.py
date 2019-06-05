@@ -27,7 +27,8 @@ class WGAN():
         
         self.leads_generator_idx = leads_generator_idx
         
-        self.ecg_shape = (self.ecg_samp, self.ecg_leads, self.channels)
+        self.ecg_shape = (self.ecg_samp, self.ecg_leads, 1)
+        self.latent_shape = (self.ecg_samp, len(self.leads_generator_idx), 1)
         self.latent_dim = self.ecg_samp * len(self.leads_generator_idx)
 
         # Following parameter and optimizer set as recommended in paper
@@ -48,7 +49,7 @@ class WGAN():
         self.generator = self.build_generator()
 
         # The generator takes noise as input and generated imgs
-        z = Input(shape=(self.latent_dim,))
+        z = Input(shape= self.latent_shape )
         img = self.generator(z)
 
         # For the combined model we will only train the generator
@@ -70,22 +71,32 @@ class WGAN():
 
         model = Sequential()
 
-        model.add(Dense(128 * 7 * 7, activation="relu", input_dim=self.latent_dim ))
-        model.add(Reshape((7, 7, 128)))
-        model.add(UpSampling2D())
-        model.add(Conv2D(128, kernel_size=4, padding="same"))
+#        model.add(Dense(128 * 7 * 7, activation="relu", input_dim=self.latent_dim ))
+#        model.add(Reshape((7, 7, 128)))
+#        model.add(UpSampling2D())
+#        model.add(Conv2D(128, kernel_size=4, padding="same"))
+#        model.add(BatchNormalization(momentum=0.8))
+#        model.add(Activation("relu"))
+#        model.add(UpSampling2D())
+#        model.add(Conv2D(64, kernel_size=4, padding="same"))
+#        model.add(BatchNormalization(momentum=0.8))
+#        model.add(Activation("relu"))
+#        model.add(Conv2D(self.channels, kernel_size=4, padding="same"))
+#        model.add(Activation("tanh"))
+
+        model.add(Conv2D( 32 , kernel_size=2, padding="same", input_shape = self.latent_shape ))
         model.add(BatchNormalization(momentum=0.8))
         model.add(Activation("relu"))
-        model.add(UpSampling2D())
-        model.add(Conv2D(64, kernel_size=4, padding="same"))
+        model.add(Conv2D(16, kernel_size=4, padding="same"))
         model.add(BatchNormalization(momentum=0.8))
         model.add(Activation("relu"))
-        model.add(Conv2D(self.channels, kernel_size=4, padding="same"))
-        model.add(Activation("tanh"))
+        model.add(Conv2D(8, kernel_size=4, padding="same"))
+        model.add(Dense(self.ecg_leads // 2, activation="tanh"))
+        model.add(Reshape((self.ecg_samp, self.ecg_leads, 1)))
 
         model.summary()
 
-        noise = Input(shape=(self.latent_dim,))
+        noise = Input(shape=self.latent_shape )
         img = model(noise)
 
         return Model(noise, img)
@@ -93,6 +104,25 @@ class WGAN():
     def build_critic(self):
 
         model = Sequential()
+
+#        model.add(Conv2D(16, kernel_size=3, strides=2, input_shape=self.ecg_shape, padding="same"))
+#        model.add(LeakyReLU(alpha=0.2))
+#        model.add(Dropout(0.25))
+#        model.add(Conv2D(32, kernel_size=3, strides=2, padding="same"))
+#        model.add(ZeroPadding2D(padding=((0,1),(0,1))))
+#        model.add(BatchNormalization(momentum=0.8))
+#        model.add(LeakyReLU(alpha=0.2))
+#        model.add(Dropout(0.25))
+#        model.add(Conv2D(64, kernel_size=3, strides=2, padding="same"))
+#        model.add(BatchNormalization(momentum=0.8))
+#        model.add(LeakyReLU(alpha=0.2))
+#        model.add(Dropout(0.25))
+#        model.add(Conv2D(128, kernel_size=3, strides=1, padding="same"))
+#        model.add(BatchNormalization(momentum=0.8))
+#        model.add(LeakyReLU(alpha=0.2))
+#        model.add(Dropout(0.25))
+#        model.add(Flatten())
+#        model.add(Dense(1))
 
         model.add(Conv2D(16, kernel_size=3, strides=2, input_shape=self.ecg_shape, padding="same"))
         model.add(LeakyReLU(alpha=0.2))
@@ -154,10 +184,10 @@ class WGAN():
                 X_train = X_train / self.k_ui16
                 
                 latent_img = X_train[:, :, self.leads_generator_idx]
-                latent_img = latent_img.reshape(latent_img.shape[0], latent_img.shape[1]*latent_img.shape[2], order='F')
                 
-                latent_img =+ np.random.normal(0, np.sqrt(np.var(latent_img)/20), (batch_size, self.latent_dim))                
-
+                latent_img =+ np.random.normal(0, np.sqrt(np.var(latent_img)/20), latent_img.shape)                
+                
+                latent_img = np.expand_dims(latent_img, axis=3)
                 X_train = np.expand_dims(X_train, axis=3)
 
                 # Generate a batch of new images
@@ -185,8 +215,8 @@ class WGAN():
             print ("%d [D loss: %f] [G loss: %f]" % (epoch, 1 - d_loss[0], 1 - g_loss[0]))
 
             # If at save interval => save generated image samples
-            if epoch % sample_interval == 0:
-                self.sample_images(epoch, latent_img, X_train)
+#            if epoch % sampe_interval == 0:
+#                self.sample_images(epoch, latent_img, X_train)
 
     def sample_images(self, epoch, latent_img, X_train):
         
