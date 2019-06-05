@@ -215,25 +215,27 @@ class WGAN():
             print ("%d [D loss: %f] [G loss: %f]" % (epoch, 1 - d_loss[0], 1 - g_loss[0]))
 
             # If at save interval => save generated image samples
-#            if epoch % sampe_interval == 0:
-#                self.sample_images(epoch, latent_img, X_train)
+            if epoch % sample_interval == 0:
+                self.sample_images(epoch, latent_img, X_train)
 
     def sample_images(self, epoch, latent_img, X_train):
         
-        gen_imgs = self.generator.predict(latent_img[0,:,:,:])
+        gen_imgs = self.generator.predict(latent_img[0:1,:,:,:])
 
-        real_imgs = np.squeeze(latent_img[0,:,:,:])
+        real_imgs = np.squeeze(X_train[0,:,:,:])
         # Rescale images 0 - 1
-        gen_imgs = np.round(self.k_ui16 * np.squeeze(gen_imgs))
-
+        gen_imgs = np.squeeze(gen_imgs)
     
         for ii in range(real_imgs.shape[1]):
         
             fig = plt.figure(1)
-            plt.plot( np.hstack( [real_imgs[:,ii], gen_imgs[:,ii]] ) )
+            plt.cla()
+            plt.plot( gen_imgs[:,ii], label = 'gen' )
+            plt.plot( real_imgs[:,ii], label = 'real' )
             plt.title( 'Lead {:s}'.format(self.lead_names[ii]) )
             fig.savefig("images/{:d}_lead_{:s}.png".format(epoch, self.lead_names[ii] ) )
-            plt.close()
+
+#            ii = 0; fig = plt.figure(2); plt.plot( real_imgs[:,ii] ); plt.title( 'Lead {:s}'.format(self.lead_names[ii]) ); plt.show();
 
 
 if __name__ == '__main__':
