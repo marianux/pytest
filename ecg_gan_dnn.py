@@ -420,7 +420,7 @@ default_lead_order = ['I', 'II', 'V1', 'V2', 'V3', 'V4', 'V5', 'V6']
 [_, target_lead_idx, _] = np.intersect1d(default_lead_order, target_lead_names,  assume_unique=True, return_indices=True)
 
 ds_config = { 
-                'width': 10, # s
+                'width': 1, # s
                 'fs':    200 # Hz
                 
             }
@@ -494,6 +494,9 @@ for this_lr in all_lr :
     print( 'Time elapsed to train: ' + my_delta_time(time_elapsed) )
     
     result_path = os.path.join('.', 'results')
+    os.makedirs(result_path, exist_ok=True)
+    
+    result_path = os.path.join('.', 'images')
     os.makedirs(result_path, exist_ok=True)
     
     model_id = time.strftime("%d_%b_%Y_%H_%M_%S", time.localtime()) + '_lr_{:3.3g}'.format(this_lr) 

@@ -7,6 +7,7 @@ from keras.layers.advanced_activations import LeakyReLU
 from keras.layers.convolutional import UpSampling2D, Conv2D
 from keras.models import Sequential, Model
 from keras.optimizers import RMSprop
+import tensorflow as tf
 
 import keras.backend as K
 
@@ -69,86 +70,101 @@ class WGAN():
 
     def build_generator(self):
 
-        model = Sequential()
+        the_model = []
 
-#        model.add(Dense(128 * 7 * 7, activation="relu", input_dim=self.latent_dim ))
-#        model.add(Reshape((7, 7, 128)))
-#        model.add(UpSampling2D())
-#        model.add(Conv2D(128, kernel_size=4, padding="same"))
-#        model.add(BatchNormalization(momentum=0.8))
-#        model.add(Activation("relu"))
-#        model.add(UpSampling2D())
-#        model.add(Conv2D(64, kernel_size=4, padding="same"))
-#        model.add(BatchNormalization(momentum=0.8))
-#        model.add(Activation("relu"))
-#        model.add(Conv2D(self.channels, kernel_size=4, padding="same"))
-#        model.add(Activation("tanh"))
+        with tf.device('/GPU:0'):
+                
+            model = Sequential()
+    
+    #        model.add(Dense(128 * 7 * 7, activation="relu", input_dim=self.latent_dim ))
+    #        model.add(Reshape((7, 7, 128)))
+    #        model.add(UpSampling2D())
+    #        model.add(Conv2D(128, kernel_size=4, padding="same"))
+    #        model.add(BatchNormalization(momentum=0.8))
+    #        model.add(Activation("relu"))
+    #        model.add(UpSampling2D())
+    #        model.add(Conv2D(64, kernel_size=4, padding="same"))
+    #        model.add(BatchNormalization(momentum=0.8))
+    #        model.add(Activation("relu"))
+    #        model.add(Conv2D(self.channels, kernel_size=4, padding="same"))
+    #        model.add(Activation("tanh"))
+    
+            model.add(Conv2D( 64 , kernel_size=2, padding="same", input_shape = self.latent_shape ))
+            model.add(BatchNormalization(momentum=0.8))
+            model.add(Activation("relu"))
+            model.add(Conv2D( 32 , kernel_size=2, padding="same", input_shape = self.latent_shape ))
+            model.add(BatchNormalization(momentum=0.8))
+            model.add(Activation("relu"))
+            model.add(Conv2D(16, kernel_size=4, padding="same"))
+            model.add(BatchNormalization(momentum=0.8))
+            model.add(Activation("relu"))
+            model.add(Conv2D(8, kernel_size=4, padding="same"))
+            model.add(Dense(self.ecg_leads // 2, activation="tanh"))
+            model.add(Reshape((self.ecg_samp, self.ecg_leads, 1)))
+    
+            model.summary()
+    
+            noise = Input(shape=self.latent_shape )
+            img = model(noise)
 
-        model.add(Conv2D( 32 , kernel_size=2, padding="same", input_shape = self.latent_shape ))
-        model.add(BatchNormalization(momentum=0.8))
-        model.add(Activation("relu"))
-        model.add(Conv2D(16, kernel_size=4, padding="same"))
-        model.add(BatchNormalization(momentum=0.8))
-        model.add(Activation("relu"))
-        model.add(Conv2D(8, kernel_size=4, padding="same"))
-        model.add(Dense(self.ecg_leads // 2, activation="tanh"))
-        model.add(Reshape((self.ecg_samp, self.ecg_leads, 1)))
+            the_model = Model(noise, img)
 
-        model.summary()
-
-        noise = Input(shape=self.latent_shape )
-        img = model(noise)
-
-        return Model(noise, img)
+        return the_model
 
     def build_critic(self):
 
-        model = Sequential()
+        the_model = []
+        
+        with tf.device('/GPU:0'):
+        
+            model = Sequential()
+    
+    #        model.add(Conv2D(16, kernel_size=3, strides=2, input_shape=self.ecg_shape, padding="same"))
+    #        model.add(LeakyReLU(alpha=0.2))
+    #        model.add(Dropout(0.25))
+    #        model.add(Conv2D(32, kernel_size=3, strides=2, padding="same"))
+    #        model.add(ZeroPadding2D(padding=((0,1),(0,1))))
+    #        model.add(BatchNormalization(momentum=0.8))
+    #        model.add(LeakyReLU(alpha=0.2))
+    #        model.add(Dropout(0.25))
+    #        model.add(Conv2D(64, kernel_size=3, strides=2, padding="same"))
+    #        model.add(BatchNormalization(momentum=0.8))
+    #        model.add(LeakyReLU(alpha=0.2))
+    #        model.add(Dropout(0.25))
+    #        model.add(Conv2D(128, kernel_size=3, strides=1, padding="same"))
+    #        model.add(BatchNormalization(momentum=0.8))
+    #        model.add(LeakyReLU(alpha=0.2))
+    #        model.add(Dropout(0.25))
+    #        model.add(Flatten())
+    #        model.add(Dense(1))
+    
+            model.add(Conv2D(16, kernel_size=3, strides=2, input_shape=self.ecg_shape, padding="same"))
+            model.add(LeakyReLU(alpha=0.2))
+            model.add(Dropout(0.25))
+            model.add(Conv2D(32, kernel_size=3, strides=2, padding="same"))
+            model.add(ZeroPadding2D(padding=((0,1),(0,1))))
+            model.add(BatchNormalization(momentum=0.8))
+            model.add(LeakyReLU(alpha=0.2))
+            model.add(Dropout(0.25))
+            model.add(Conv2D(64, kernel_size=3, strides=2, padding="same"))
+            model.add(BatchNormalization(momentum=0.8))
+            model.add(LeakyReLU(alpha=0.2))
+            model.add(Dropout(0.25))
+            model.add(Conv2D(128, kernel_size=3, strides=1, padding="same"))
+            model.add(BatchNormalization(momentum=0.8))
+            model.add(LeakyReLU(alpha=0.2))
+            model.add(Dropout(0.25))
+            model.add(Flatten())
+            model.add(Dense(1))
+    
+            model.summary()
+    
+            img = Input(shape=self.ecg_shape)
+            validity = model(img)
 
-#        model.add(Conv2D(16, kernel_size=3, strides=2, input_shape=self.ecg_shape, padding="same"))
-#        model.add(LeakyReLU(alpha=0.2))
-#        model.add(Dropout(0.25))
-#        model.add(Conv2D(32, kernel_size=3, strides=2, padding="same"))
-#        model.add(ZeroPadding2D(padding=((0,1),(0,1))))
-#        model.add(BatchNormalization(momentum=0.8))
-#        model.add(LeakyReLU(alpha=0.2))
-#        model.add(Dropout(0.25))
-#        model.add(Conv2D(64, kernel_size=3, strides=2, padding="same"))
-#        model.add(BatchNormalization(momentum=0.8))
-#        model.add(LeakyReLU(alpha=0.2))
-#        model.add(Dropout(0.25))
-#        model.add(Conv2D(128, kernel_size=3, strides=1, padding="same"))
-#        model.add(BatchNormalization(momentum=0.8))
-#        model.add(LeakyReLU(alpha=0.2))
-#        model.add(Dropout(0.25))
-#        model.add(Flatten())
-#        model.add(Dense(1))
-
-        model.add(Conv2D(16, kernel_size=3, strides=2, input_shape=self.ecg_shape, padding="same"))
-        model.add(LeakyReLU(alpha=0.2))
-        model.add(Dropout(0.25))
-        model.add(Conv2D(32, kernel_size=3, strides=2, padding="same"))
-        model.add(ZeroPadding2D(padding=((0,1),(0,1))))
-        model.add(BatchNormalization(momentum=0.8))
-        model.add(LeakyReLU(alpha=0.2))
-        model.add(Dropout(0.25))
-        model.add(Conv2D(64, kernel_size=3, strides=2, padding="same"))
-        model.add(BatchNormalization(momentum=0.8))
-        model.add(LeakyReLU(alpha=0.2))
-        model.add(Dropout(0.25))
-        model.add(Conv2D(128, kernel_size=3, strides=1, padding="same"))
-        model.add(BatchNormalization(momentum=0.8))
-        model.add(LeakyReLU(alpha=0.2))
-        model.add(Dropout(0.25))
-        model.add(Flatten())
-        model.add(Dense(1))
-
-        model.summary()
-
-        img = Input(shape=self.ecg_shape)
-        validity = model(img)
-
-        return Model(img, validity)
+            the_model = Model(img, validity)
+        
+        return the_model
 
     def train(self, data_gen, epochs = 100, batch_size=128, sample_interval=50):
 
@@ -217,6 +233,12 @@ class WGAN():
             # If at save interval => save generated image samples
             if epoch % sample_interval == 0:
                 self.sample_images(epoch, latent_img, X_train)
+                
+            if epoch % 100 == 0:
+                self.combined.save( "checkpoint/combined.h5" )  # creates a HDF5 file 'my_model.h5'
+                self.critic.save( "checkpoint/critic.h5" )  # creates a HDF5 file 'my_model.h5'
+                self.generator.save( "checkpoint/generator.h5" )  # creates a HDF5 file 'my_model.h5'
+                
 
     def sample_images(self, epoch, latent_img, X_train):
         
