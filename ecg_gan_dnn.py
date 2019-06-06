@@ -26,6 +26,7 @@ from glob import glob
 import time
 from pandas import DataFrame, read_csv
 from wgan import WGAN
+from wgan_gp import WGANGP
 
 def data_generator( datasets, batch_size=32):
     """A generator yields (source, target) arrays for training."""
@@ -425,9 +426,11 @@ ds_config = {
                 
             }
 
-win_in_samp = my_int(ds_config['width'] * ds_config['fs'])
+#win_in_samp = my_int(ds_config['width'] * ds_config['fs'])
+win_in_samp = 1024
 
-my_gan = WGAN( ecg_samp = win_in_samp, leads_generator_idx = target_lead_idx, lead_names = default_lead_order)
+#my_gan = WGAN( ecg_samp = win_in_samp, leads_generator_idx = target_lead_idx, lead_names = default_lead_order)
+my_gan = WGANGP( ecg_samp = win_in_samp , leads_generator_idx = target_lead_idx, lead_names = default_lead_order)
 
 my_gan.train(train_generator, epochs=epochs, batch_size=batch_size, sample_interval=200)
 
