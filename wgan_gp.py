@@ -13,7 +13,7 @@ from keras.layers.advanced_activations import LeakyReLU, ReLU
 from keras.layers.convolutional import UpSampling1D, Conv1D
 #from keras.layers.convolutional import UpSampling2D, Conv2D
 from keras.models import Sequential, Model
-from keras.optimizers import RMSprop
+from keras.optimizers import RMSprop, Adam
 from functools import partial
 
 import keras.backend as K
@@ -52,7 +52,8 @@ class WGANGP():
 
         # Following parameter and optimizer set as recommended in paper
         self.n_critic = 5
-        optimizer = RMSprop(lr=0.00005)
+#        optimizer = RMSprop(lr=0.00005)
+        optimizer = Adam(lr=0.001, beta_1 = 0.5, beta_2 = 0.9)
 
         # Build the generator and critic
         self.generator = self.build_generator()
@@ -279,14 +280,14 @@ class WGANGP():
             print ("%d [D loss: %f] [G loss: %f]" % (epoch, d_loss[0], g_loss))
 
             if epoch % sample_interval == 0:
-                self.sample_images(epoch)
+                self.sample_images(epoch, X_train)
                 
             if epoch % 100 == 0:
                 self.critic_model.save( "checkpoint/critic.h5" )  # creates a HDF5 file 'my_model.h5'
                 self.generator_model.save( "checkpoint/generator.h5" )  # creates a HDF5 file 'my_model.h5'
                 
 
-    def sample_images(self, epoch):
+    def sample_images(self, epoch, X_train):
         
         noise = np.random.uniform(-1, 1, (1, self.latent_dim) )
         
@@ -297,6 +298,9 @@ class WGANGP():
         fig = plt.figure(1)
         plt.cla()
         plt.plot( gen_imgs, label = 'gen' )
+        plt.plot( np.squeeze(X_train[0,:]), label = 'real' )
+        plt.legend( )
+        
         fig.savefig("images/epoch_{:d}.png".format(epoch) )
 
 if __name__ == '__main__':
