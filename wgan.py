@@ -38,8 +38,8 @@ class WGAN():
 
         # Following parameter and optimizer set as recommended in paper
         self.n_critic = 5
-        self.clip_value = 0.01
-        optimizer = RMSprop(lr=0.00005)
+        self.clip_value = 0.02
+        optimizer = RMSprop(lr=0.0005)
 
         print('Build GAN critic')
         # Build and compile the critic
@@ -97,10 +97,10 @@ class WGAN():
     
             model.add(Dense( int(self.ecg_samp * len(self.leads_generator_idx) / self.latent_dim ) , activation="relu", input_shape = self.latent_shape ))
             model.add(Reshape((self.ecg_samp, len(self.leads_generator_idx), 1)))
-            model.add(Conv2D( 64 , kernel_size=2, padding="same" ) )
+            model.add(Conv2D( 64 , kernel_size=4, padding="same" ) )
             model.add(BatchNormalization(momentum=0.8))
             model.add(Activation("relu"))
-            model.add(Conv2D( 32 , kernel_size=2, padding="same"))
+            model.add(Conv2D( 32 , kernel_size=4, padding="same"))
             model.add(BatchNormalization(momentum=0.8))
             model.add(Activation("relu"))
             model.add(Conv2D(16, kernel_size=4, padding="same"))
