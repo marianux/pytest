@@ -46,14 +46,16 @@ class WGANGP():
         self.leads_generator_idx = leads_generator_idx
         
         self.ecg_shape = (self.ecg_samp, self.ecg_leads)
-
+        
+        # del paper de audio : escala de penalidad para el gradiente 
+        self.k_lambda = 10
         self.latent_dim = 100
         self.latent_shape = (self.latent_dim, 1)
 
         # Following parameter and optimizer set as recommended in paper
         self.n_critic = 5
 #        optimizer = RMSprop(lr=0.00005)
-        optimizer = Adam(lr=0.001, beta_1 = 0.5, beta_2 = 0.9)
+        optimizer = Adam(lr=1e-4, beta_1 = 0.5, beta_2 = 0.9)
 
         # Build the generator and critic
         self.generator = self.build_generator()
@@ -132,7 +134,9 @@ class WGANGP():
         # compute lambda * (1 - ||grad||)^2 still for each single sample
         gradient_penalty = K.square(1 - gradient_l2_norm)
         # return the mean as loss over all the batch samples
-        return K.mean(gradient_penalty)
+        gradient_penalty = self.k_lambda * K.mean(gradient_penalty)
+        
+        return gradient_penalty
 
 
     def wasserstein_loss(self, y_true, y_pred):
@@ -155,16 +159,24 @@ class WGANGP():
     #        model.add(Activation("relu"))
     #        model.add(Conv2D(self.channels, kernel_size=4, padding="same"))
     #        model.add(Activation("tanh"))
+            
+            dim = 64
+            dim_mul = 16
 
-            model.add(Dense(256, activation="relu", input_dim=self.latent_dim))
-            model.add(Reshape((16, 16)))
+            model.add(Dense(4 * 4 * dim * dim_mul, activation="relu", input_dim=self.latent_dim))
+            model.add(Reshape((16, dim * dim_mul)))
             model.add(UpSampling1D(size=4))
-            model.add(Conv1D(4, kernel_size=25, dilation_rate=4, padding="same"))
+            dim_mul //= 2
+            
+            model.add(Conv1D(dim * dim_mul, kernel_size=25, dilation_rate=4, padding="same"))
             model.add(Activation("relu"))
             model.add(UpSampling1D(size=4))
-            model.add(Conv1D(2, kernel_size=25, dilation_rate=4, padding="same"))
+            
+            dim_mul //= 2
+            model.add(Conv1D(dim * dim_mul, kernel_size=25, dilation_rate=4, padding="same"))
             model.add(Activation("relu"))
             model.add(UpSampling1D(size=4))
+            
             model.add(Conv1D(1, kernel_size=25, dilation_rate=4, padding="same"))
             model.add(Activation("tanh"))
 
@@ -202,16 +214,16 @@ class WGANGP():
 #            model.add(Flatten())
 #            model.add(Dense(1))
 
-            model.add(Conv1D(1, kernel_size=25, strides=4, input_shape=self.ecg_shape, padding="same"))
+            model.add(Conv1D(128, kernel_size=25, strides=4, input_shape=self.ecg_shape, padding="same"))
             model.add(LeakyReLU(alpha=0.2))
             model.add(Dropout(0.25))
-            model.add(Conv1D(2, kernel_size=25, strides=4, padding="same"))
+            model.add(Conv1D(64, kernel_size=25, strides=4, padding="same"))
             model.add(LeakyReLU(alpha=0.2))
             model.add(Dropout(0.25))
-            model.add(Conv1D(4, kernel_size=25, strides=4, padding="same"))
+            model.add(Conv1D(32, kernel_size=25, strides=4, padding="same"))
             model.add(LeakyReLU(alpha=0.2))
             model.add(Dropout(0.25))
-            model.add(Conv1D(8, kernel_size=25, strides=4, padding="same"))
+            model.add(Conv1D(16, kernel_size=25, strides=4, padding="same"))
             model.add(LeakyReLU(alpha=0.2))
             model.add(Dropout(0.25))
             model.add(Flatten())
