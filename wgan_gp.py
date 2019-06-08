@@ -49,7 +49,7 @@ class WGANGP():
         
         # del paper de audio : escala de penalidad para el gradiente 
         self.k_lambda = 10
-        self.latent_dim = 100
+        self.latent_dim = 32
         self.latent_shape = (self.latent_dim, 1)
 
         # Following parameter and optimizer set as recommended in paper
@@ -109,7 +109,7 @@ class WGANGP():
         self.generator.trainable = True
 
         # Sampled noise for input to generator
-        z_gen = Input(shape=(100,))
+        z_gen = Input(shape=(self.latent_dim,))
         # Generate images based of noise
         img = self.generator(z_gen)
         # Discriminator determines validity
@@ -160,11 +160,12 @@ class WGANGP():
     #        model.add(Conv2D(self.channels, kernel_size=4, padding="same"))
     #        model.add(Activation("tanh"))
             
-            dim = 64
+            dim = 16
             dim_mul = 16
+            base_dim = int(np.max( [1, self.ecg_samp/(4**3)] ))
 
-            model.add(Dense(4 * 4 * dim * dim_mul, activation="relu", input_dim=self.latent_dim))
-            model.add(Reshape((16, dim * dim_mul)))
+            model.add(Dense( base_dim * dim * dim_mul, activation="relu", input_dim=self.latent_dim))
+            model.add(Reshape((base_dim, dim * dim_mul)))
             model.add(UpSampling1D(size=4))
             dim_mul //= 2
             

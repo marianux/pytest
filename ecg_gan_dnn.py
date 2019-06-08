@@ -427,7 +427,7 @@ ds_config = {
             }
 
 #win_in_samp = my_int(ds_config['width'] * ds_config['fs'])
-win_in_samp = 1024
+win_in_samp = 256
 
 #my_gan = WGAN( ecg_samp = win_in_samp, leads_generator_idx = target_lead_idx, lead_names = default_lead_order)
 my_gan = WGANGP( ecg_samp = win_in_samp , leads_generator_idx = target_lead_idx, lead_names = default_lead_order)
