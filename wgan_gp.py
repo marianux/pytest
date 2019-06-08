@@ -49,6 +49,15 @@ class WGANGP():
         
         # del paper de audio : escala de penalidad para el gradiente 
         self.k_lambda = 10
+        self.latent_dim = 100
+        self.latent_shape = (self.latent_dim, 1)
+
+        self.leads_generator_idx = leads_generator_idx
+        
+        self.ecg_shape = (self.ecg_samp, self.ecg_leads)
+        
+        # del paper de audio : escala de penalidad para el gradiente 
+        self.k_lambda = 10
         self.latent_dim = 32
         self.latent_shape = (self.latent_dim, 1)
 
