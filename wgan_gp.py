@@ -56,11 +56,6 @@ class WGANGP():
         
         self.ecg_shape = (self.ecg_samp, self.ecg_leads)
         
-        # del paper de audio : escala de penalidad para el gradiente 
-        self.k_lambda = 10
-        self.latent_dim = 32
-        self.latent_shape = (self.latent_dim, 1)
-
         # Following parameter and optimizer set as recommended in paper
         self.n_critic = 5
 #        optimizer = RMSprop(lr=0.00005)
@@ -169,7 +164,7 @@ class WGANGP():
     #        model.add(Conv2D(self.channels, kernel_size=4, padding="same"))
     #        model.add(Activation("tanh"))
             
-            dim = 16
+            dim = 32
             dim_mul = 16
             base_dim = int(np.max( [1, self.ecg_samp/(4**3)] ))
 
@@ -178,16 +173,20 @@ class WGANGP():
             model.add(UpSampling1D(size=4))
             dim_mul //= 2
             
-            model.add(Conv1D(dim * dim_mul, kernel_size=25, dilation_rate=4, padding="same"))
+#            model.add(Conv1D(dim * dim_mul, kernel_size=5, dilation_rate=4, padding="same"))
+            model.add(Conv1D(dim * dim_mul, kernel_size=5, padding="same"))
+            model.add(BatchNormalization(momentum=0.8))
             model.add(Activation("relu"))
             model.add(UpSampling1D(size=4))
             
             dim_mul //= 2
-            model.add(Conv1D(dim * dim_mul, kernel_size=25, dilation_rate=4, padding="same"))
+            model.add(Conv1D(dim * dim_mul, kernel_size=5, padding="same"))
+            model.add(BatchNormalization(momentum=0.8))
             model.add(Activation("relu"))
             model.add(UpSampling1D(size=4))
             
-            model.add(Conv1D(1, kernel_size=25, dilation_rate=4, padding="same"))
+            model.add(Conv1D(1, kernel_size=5, padding="same"))
+            model.add(BatchNormalization(momentum=0.8))
             model.add(Activation("tanh"))
 
             model.summary()
@@ -224,16 +223,21 @@ class WGANGP():
 #            model.add(Flatten())
 #            model.add(Dense(1))
 
-            model.add(Conv1D(128, kernel_size=25, strides=4, input_shape=self.ecg_shape, padding="same"))
+#            model.add(Conv1D(128, kernel_size=25, strides=4, input_shape=self.ecg_shape, padding="same"))
+            model.add(Conv1D(128, kernel_size=25, input_shape=self.ecg_shape, padding="same"))
+            model.add(BatchNormalization(momentum=0.8))
             model.add(LeakyReLU(alpha=0.2))
             model.add(Dropout(0.25))
-            model.add(Conv1D(64, kernel_size=25, strides=4, padding="same"))
+            model.add(Conv1D(64, kernel_size=25, padding="same"))
+            model.add(BatchNormalization(momentum=0.8))
             model.add(LeakyReLU(alpha=0.2))
             model.add(Dropout(0.25))
-            model.add(Conv1D(32, kernel_size=25, strides=4, padding="same"))
+            model.add(Conv1D(32, kernel_size=25, padding="same"))
+            model.add(BatchNormalization(momentum=0.8))
             model.add(LeakyReLU(alpha=0.2))
             model.add(Dropout(0.25))
-            model.add(Conv1D(16, kernel_size=25, strides=4, padding="same"))
+            model.add(Conv1D(16, kernel_size=25, padding="same"))
+            model.add(BatchNormalization(momentum=0.8))
             model.add(LeakyReLU(alpha=0.2))
             model.add(Dropout(0.25))
             model.add(Flatten())
@@ -286,7 +290,8 @@ class WGANGP():
 #                latent_img =+ np.random.normal(0, np.sqrt(np.var(latent_img)/20), latent_img.shape)                
                 
                 # just noise
-                noise = np.random.uniform(-1, 1, (batch_size, self.latent_dim))
+                noise = np.random.normal(0, 1, (batch_size, self.latent_dim))
+#                noise = np.random.uniform(-1, 1, (batch_size, self.latent_dim))
                 
                 # Train the critic
                 d_loss = self.critic_model.train_on_batch([X_train, noise],
@@ -311,7 +316,8 @@ class WGANGP():
 
     def sample_images(self, epoch, X_train):
         
-        noise = np.random.uniform(-1, 1, (1, self.latent_dim) )
+        noise = np.random.normal(0, 1, (1, self.latent_dim))
+#        noise = np.random.uniform(-1, 1, (1, self.latent_dim) )
         
         gen_imgs = self.generator.predict(noise)
     
