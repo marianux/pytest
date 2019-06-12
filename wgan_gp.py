@@ -325,26 +325,21 @@ class WGANGP():
 #            model.add(UpSampling1D(size=4)(out)
             
             dim_mul //= 2
-                
-            model.add(Lambda(lambda x: K.expand_dims(x, axis=1) ))
-            model.add(Conv2DTranspose(dim * dim_mul, kernel_size=(1,25), strides=(1, 4), padding="same"))
-            model.add(Lambda(lambda x: K.squeeze(x, axis=1)))
+            
+#            model.add(Conv1D(dim * dim_mul, kernel_size=5, dilation_rate=4, padding="same"))
+            model.add(Conv1D(dim * dim_mul, kernel_size=25, padding="same"))
             model.add(BatchNormalization(momentum=0.8))
             model.add(Activation("relu"))
 #            out = UpSampling1D(size=4)(out)
 
             dim_mul //= 2
-            model.add(Lambda(lambda x: K.expand_dims(x, axis=1)))
-            model.add(Conv2DTranspose(dim * dim_mul, kernel_size=(1, 25), strides=(1, 4), padding="same"))
-            model.add(Lambda(lambda x: K.squeeze(x, axis=1)))
+            model.add(Conv1D(dim * dim_mul, kernel_size=25, padding="same"))
             model.add(BatchNormalization(momentum=0.8))
             model.add(Activation("relu"))
 #            out = UpSampling1D(size=4)(out)
             
-            dim_mul //= 2
-            model.add(Lambda(lambda x: K.expand_dims(x, axis=1)))
-            model.add(Conv2DTranspose(1, kernel_size=(1, 25), strides=(1, 4), padding="same"))
-            model.add(Lambda(lambda x: K.squeeze(x, axis=1)))
+            model.add(Conv1D(1, kernel_size=25, padding="same"))
+            model.add(BatchNormalization(momentum=0.8))
             model.add(Activation("tanh"))
             
             model.summary()
