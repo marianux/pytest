@@ -28,8 +28,10 @@ from pandas import DataFrame, read_csv
 from wgan import WGAN
 from wgan_gp import WGANGP
 
-def data_generator( datasets, batch_size=32):
+def data_generator( datasets, batch_size, dg_sample_size):
     """A generator yields (source, target) arrays for training."""
+
+    hwin_in_samp = my_int(dg_sample_size/2)
 
     while True:
           
@@ -54,9 +56,13 @@ def data_generator( datasets, batch_size=32):
                 train_x = signals[ii]
                 cant_samples = train_x.shape[0]
                 
-                sample_idx = np.random.choice(np.arange(cant_samples-win_in_samp), batch_size, replace=False )
+                sample_idx = np.random.choice(np.arange(2*dg_sample_size, cant_samples-2*dg_sample_size), batch_size, replace=False )
                 
-                xx = [ train_x[ jj:jj+win_in_samp,:] for jj in sample_idx ]
+                # trampilla para sync
+                
+                tt = [ jj + np.argmax(np.abs(train_x[ jj:jj+dg_sample_size,1]))  for jj in sample_idx ]
+                
+                xx = [ train_x[ jj-hwin_in_samp:jj+hwin_in_samp,:] for jj in tt ]
                 
                 xx = np.stack(xx, axis=0)
 
@@ -294,352 +300,355 @@ def define_model( model_params ) :
         
         return(model)    
 
-parser = ap.ArgumentParser(description='Prueba para entrenar un detector de QRS mediante técnicas de deep learning')
+if __name__ == '__main__':
 
-parser.add_argument( '--train_list', 
-                     default='', 
-                     type=str, 
-                     help='Nombre de la base de datos')
-
-parser.add_argument( '--val_list', 
-                     default='', 
-                     type=str, 
-                     help='Nombre de la base de datos')
-
-parser.add_argument( '--test_list', 
-                     default='', 
-                     type=str, 
-                     help='Nombre de la base de datos')
-
-parser.add_argument( '--learning_rates', 
-                     default=[], 
-                     nargs="*",
-                     type=float, 
-                     help='Nombre de la base de datos')
-
-parser.add_argument( '--dropout', 
-                     default=0.25, 
-                     type=float, 
-                     help='Nombre de la base de datos')
-
-parser.add_argument( '--batch_size', 
-                     default=2 ** 10, 
-                     type=int, 
-                     help='Nombre de la base de datos')
-
-parser.add_argument( '--epochs', 
-                     default=10, 
-                     type=int, 
-                     help='Nombre de la base de datos')
-
-args = parser.parse_args()
-
-# data
-train_list_fn = args.train_list
-val_list_fn = args.val_list
-test_list_fn = args.test_list
-
-# model
-drop_out = args.dropout
-
-# Fit configuration
-all_lr = np.array(args.learning_rates)
-batch_size = args.batch_size
-epochs = args.epochs
-
-
-## Train
-print('Build train data-generator ...')
-
-if train_list_fn == '':
-    raise EnvironmentError
-
-train_samples, train_recordings, train_paths = get_dataset_size(train_list_fn)
-
-train_generator = data_generator(train_paths, batch_size)
-
-if val_list_fn == '':
+    parser = ap.ArgumentParser(description='Prueba para entrenar un detector de QRS mediante técnicas de deep learning')
     
-    val_generator = []
+    parser.add_argument( '--train_list', 
+                         default='', 
+                         type=str, 
+                         help='Nombre de la base de datos')
     
-else:
+    parser.add_argument( '--val_list', 
+                         default='', 
+                         type=str, 
+                         help='Nombre de la base de datos')
     
-    print('Build val data-generator ...')
+    parser.add_argument( '--test_list', 
+                         default='', 
+                         type=str, 
+                         help='Nombre de la base de datos')
     
-    val_samples, val_recordings, val_paths = get_dataset_size(val_list_fn)
+    parser.add_argument( '--learning_rates', 
+                         default=[], 
+                         nargs="*",
+                         type=float, 
+                         help='Nombre de la base de datos')
     
-    val_generator = data_generator(val_paths, batch_size)
-
-
-test_generator = []
-
-#    ## Validation
-#    paths = glob(os.path.join(ds_config['dataset_path'], 'ds_val_part_*.npy' ))
-#
-#    if paths == []:
-#        raise EnvironmentError
-#    else:
-#        
-#        cant_val_parts = len(paths)
-#        train_ds = np.load(os.path.join(ds_config['dataset_path'], 'ds_val_part_' + str(cant_val_parts) + '.npy' ))[()]
-#        val_samples = train_ds['cant_total_samples']
-#        
-#        val_generator = data_generator(paths, batch_size);
-#
-#    ## Test
-#    
-#    paths = glob(os.path.join(ds_config['dataset_path'], 'ds_test_part_*.npy' ))
-#
-#    if paths == []:
-#        raise EnvironmentError
-#    else:
-#        
-#        cant_test_parts = len(paths)
-#        train_ds = np.load(os.path.join(ds_config['dataset_path'], 'ds_test_part_' + str(cant_test_parts) + '.npy' ))[()]
-#        test_samples = train_ds['cant_total_samples']
-#        
-#        test_generator = data_generator(paths, batch_size);
-
-
-#bDebug = True
-bDebug = False
-
-if bDebug :
+    parser.add_argument( '--dropout', 
+                         default=0.25, 
+                         type=float, 
+                         help='Nombre de la base de datos')
     
-    check_datasets( train_generator ) 
-    check_datasets( val_generator ) 
-
-model_params = { 'cant_cnn': 16,
-                 'cant_filtros': 48,
-                 'size_filtros': 3,
-                 'hidden_dims': 48,
-                 'drop_out': drop_out}
-
-target_lead_names =  ['II', 'V1']
-default_lead_order = ['I', 'II', 'V1', 'V2', 'V3', 'V4', 'V5', 'V6']
-
-[_, target_lead_idx, _] = np.intersect1d(default_lead_order, target_lead_names,  assume_unique=True, return_indices=True)
-
-ds_config = { 
-                'width': 1, # s
-                'fs':    200 # Hz
-                
-            }
-
-#win_in_samp = my_int(ds_config['width'] * ds_config['fs'])
-win_in_samp = 256
-
-#my_gan = WGAN( ecg_samp = win_in_samp, leads_generator_idx = target_lead_idx, lead_names = default_lead_order)
-my_gan = WGANGP( ecg_samp = win_in_samp , leads_generator_idx = target_lead_idx, lead_names = default_lead_order)
-
-my_gan.train(train_generator, epochs=epochs, batch_size=batch_size, sample_interval=200)
-
-
-#if all_lr.size == 0 :
-#    
-#    all_lr = np.logspace(-5, -3, 5)
-#
-#
-#
-#for this_lr in all_lr :
-#    
-#    model = define_model(model_params)
-#    
-#    print('LR: ' + str(this_lr) )
-#    print('##########')
-#    
-#    #my_callback = MyCallbackClass()
-#    
-#    print('Start training @ ' + time.strftime("%a, %d %b %Y %H:%M:%S", time.localtime()))
-#    start_time = time.time()
-#    
-#    train_steps = my_ceil(train_samples / batch_size)
-#    val_steps = my_ceil(val_samples / batch_size)
-#    
-#    
-#    
-#    history = model.fit_generator(train_generator,
-#                                  steps_per_epoch = train_steps,
-#                                  epochs = epochs,
-#                                  validation_data = val_generator,
-#                                  validation_steps = my_int(val_steps/4),
-#                                  callbacks=[ TerminateOnNaN(),
-#                                              EarlyStopping(
-#                                                           monitor='val_t_f1', 
-#                                                           min_delta=0.001, 
-#                                                           patience=10, 
-#                                                           mode='max', 
-#                                                           restore_best_weights=True),
-#                                              LearningRateScheduler(lr_sched, verbose=1)
-#                                            ]
-#                                  )
-#    
-#    #    history = parallel_model.fit_generator(train_generator,
-#    #                                  steps_per_epoch = np.ceil(train_samples / batch_size),
-#    #                                  epochs = 50
-#    #        #                          validation_data=(train_x, train_y),
-#    ##                                  callbacks=[my_callback])
-#    #                                  )
-#    
-#    #    history = parallel_model.fit_generator(train_generator,
-#    #                                  steps_per_epoch = np.ceil(train_samples / batch_size),
-#    #                                  validation_data=val_generator,
-#    #                                  validation_steps = np.ceil(val_samples / batch_size),
-#    #                                  epochs = 10
-#    #        #                          validation_data=(train_x, train_y),
-#    ##                                  callbacks=[my_callback])
-#    #                                  )
-#    #    
-#    
-#    
-#    print('End training @ ' + time.strftime("%a, %d %b %Y %H:%M:%S", time.localtime()))
-#    time_elapsed = time.time() - start_time
-#
-#    print( 'Time elapsed to train: ' + my_delta_time(time_elapsed) )
-#    
-#    result_path = os.path.join('.', 'results')
-#    os.makedirs(result_path, exist_ok=True)
-#    
-#    result_path = os.path.join('.', 'images')
-#    os.makedirs(result_path, exist_ok=True)
-#    
-#    model_id = time.strftime("%d_%b_%Y_%H_%M_%S", time.localtime()) + '_lr_{:3.3g}'.format(this_lr) 
-#    model.save( os.path.join( result_path, model_id + 'qrs_detector_model_' + '.h5'))  # creates a HDF5 file 'my_model.h5'
-#    np.save( os.path.join( result_path, model_id + '_history.npy'), {'history' : history})
-#
-#    bWithTestEval = False
-#
-#    if bWithTestEval :
-#        
-#        print('Build test generator ...')
-#           
-#        if test_generator == [] :
-#            
-#            if test_list_fn == '' :
-#                
-#                test_steps = 0
-#                
-#            else:
-#                
-#                test_samples, test_features, test_paths = get_dataset_size(test_list_fn)
-#                
-#                test_generator = data_generator(test_paths, batch_size)
-#                
-#                test_steps = my_ceil(test_samples / batch_size)
-#
-#
-#    
-#    #train_se = history.history['se']
-#    ##val_se = my_callback.val_recalls
-#    #
-#    #train_pp = history.history['pp']
-#    ##val_pp = my_callback.val_precisions
-#    #
-#    train_f1 = history.history['t_f1']
-#    val_f1 = history.history['val_t_f1']
-#    val_se = history.history['val_t_se']
-#    val_pp = history.history['val_t_pp']
-#    
-#    train_loss = history.history['loss']
-#    val_loss = history.history['val_loss']
-#    
-#    # Create count of the number of epochs
-#    epoch_count = range(1, len(val_loss) + 1)
-#
-#    print('LR: ' + str(this_lr) )
-#    print('##########')
-#
-#    train_eval = model.evaluate_generator(
-#                            train_generator,
-#                            steps = train_steps
-#                            )
-#    
-#    
-#    aux_str = 'Train\n-----\n'
-#    for (metric_name, metric_val) in zip(model.metrics_names, train_eval):
-#        aux_str += '{}: {:3.3g} '.format(metric_name, metric_val)
-#    aux_str += '\n'
-#    print(aux_str)
-#    
-#    val_eval = model.evaluate_generator(
-#                            val_generator,
-#                            steps = val_steps
-#                            )
-#    
-#    
-#    aux_str = 'Val\n-----\n'
-#    for (metric_name, metric_val) in zip(model.metrics_names, val_eval):
-#        aux_str += '{}: {:3.3g} '.format(metric_name, metric_val)
-#    aux_str += '\n'
-#    print(aux_str)
-#    
-#    
-#    if bWithTestEval :
-#    
-#        if test_generator == [] :
-#    
-#            aux_str = 'Diferencia\n-------------\n'
-#            for (metric_name, train_val, test_val) in zip(model.metrics_names, train_eval, val_eval):
-#                aux_str += '{}: {:3.3g} '.format(metric_name, train_val - test_val)
-#            aux_str += '\n'
-#            print(aux_str)
-#    
-#        else:
-#            
-#            test_eval = model.evaluate_generator(
-#                                    test_generator,
-#                                    steps = test_steps
-#                                    )
-#            
-#            
-#            aux_str = 'Test\n-----\n'
-#            for (metric_name, metric_val) in zip(model.metrics_names, test_eval):
-#                aux_str += '{}: {:3.3g} '.format(metric_name, metric_val)
-#            aux_str += '\n'
-#            print(aux_str)
-#                
-#            
-#            aux_str = 'Diferencia\n-------------\n'
-#            for (metric_name, train_val, test_val) in zip(model.metrics_names, train_eval, test_eval):
-#                aux_str += '{}: {:3.3g} '.format(metric_name, train_val - test_val)
-#            aux_str += '\n'
-#            print(aux_str)
-#        
-#    else:
-#        
-#        test_eval = [np.nan] * len(train_eval)
-#
-#
-#    fig_hdl, axes = plt.subplots(2, 1, clear=True, sharex = True)
-#
-#    # Visualize F1 history
-#    axes[0].plot(epoch_count, np.transpose(np.array((train_f1, val_f1, val_se, val_pp))))
-#    axes[0].set_ylim([0.9, 1])
-#    axes[0].legend(['train_f1', 'val_f1', 'val_se', 'val_pp' ])
-#    axes[0].set_ylabel('F Score')
-#    axes[0].set_title('F1 ' + '_lr_{:3.3g} '.format(this_lr) );
-#    
-#    axes[1].plot(epoch_count, train_loss, 'r--')
-#    axes[1].plot(epoch_count, val_loss, 'b-')
-#    axes[1].set_ylim([0, np.max(np.vstack([train_loss, val_loss]))])
-#    axes[1].legend(['Train', 'Val'])
-#    axes[1].set_xlabel('Epoch')
-#    axes[1].set_ylabel('Loss')
-#    axes[1].set_title('Loss' + '_lr_{:3.3g} '.format(this_lr) );
-#        
-##    aux_metrics = [ [train_eval[ii], val_eval[ii], test_eval[ii]]  for ii in range(1,len(model.metrics_names)) ]
-##    aux_metrics = np.transpose(np.array(aux_metrics))
-##    
-##    axes[0,1].plot(range(3), aux_metrics, 'o--' )
-##    axes[0,1].set_xticks(np.arange(3), ('Train', 'Val', 'Test'))
-##    axes[0,1].legend(model.metrics_names[1:])
-##    axes[0,1].set_title('Métricas en los datasets ' + '_lr_{:3.3g} '.format(this_lr) );
-##    
-##    
-##    axes[1,1].plot(range(3), np.array([train_eval[0], val_eval[0], test_eval[0]]) )
-##    axes[1,1].set_xticks(np.arange(3), ('Train', 'Val', 'Test'))
-##    axes[1,1].legend(['Loss'])
-##    axes[1,1].set_title('Loss en los datasets ' + '_lr_{:3.3g} '.format(this_lr) );
-#    
-#    plt.savefig(os.path.join( result_path, model_id + '.jpg'), dpi=300)
-#
+    parser.add_argument( '--batch_size', 
+                         default=2 ** 10, 
+                         type=int, 
+                         help='Nombre de la base de datos')
+    
+    parser.add_argument( '--epochs', 
+                         default=10, 
+                         type=int, 
+                         help='Nombre de la base de datos')
+    
+    args = parser.parse_args()
+    
+    # data
+    train_list_fn = args.train_list
+    val_list_fn = args.val_list
+    test_list_fn = args.test_list
+    
+    # model
+    drop_out = args.dropout
+    
+    # Fit configuration
+    all_lr = np.array(args.learning_rates)
+    batch_size = args.batch_size
+    epochs = args.epochs
+    
+    
+    ## Train
+    print('Build train data-generator ...')
+    
+    if train_list_fn == '':
+        raise EnvironmentError
+    
+    train_samples, train_recordings, train_paths = get_dataset_size(train_list_fn)
+    
+    train_generator = data_generator(train_paths, batch_size)
+    
+    if val_list_fn == '':
+        
+        val_generator = []
+        
+    else:
+        
+        print('Build val data-generator ...')
+        
+        val_samples, val_recordings, val_paths = get_dataset_size(val_list_fn)
+        
+        val_generator = data_generator(val_paths, batch_size)
+    
+    
+    test_generator = []
+    
+    #    ## Validation
+    #    paths = glob(os.path.join(ds_config['dataset_path'], 'ds_val_part_*.npy' ))
+    #
+    #    if paths == []:
+    #        raise EnvironmentError
+    #    else:
+    #        
+    #        cant_val_parts = len(paths)
+    #        train_ds = np.load(os.path.join(ds_config['dataset_path'], 'ds_val_part_' + str(cant_val_parts) + '.npy' ))[()]
+    #        val_samples = train_ds['cant_total_samples']
+    #        
+    #        val_generator = data_generator(paths, batch_size);
+    #
+    #    ## Test
+    #    
+    #    paths = glob(os.path.join(ds_config['dataset_path'], 'ds_test_part_*.npy' ))
+    #
+    #    if paths == []:
+    #        raise EnvironmentError
+    #    else:
+    #        
+    #        cant_test_parts = len(paths)
+    #        train_ds = np.load(os.path.join(ds_config['dataset_path'], 'ds_test_part_' + str(cant_test_parts) + '.npy' ))[()]
+    #        test_samples = train_ds['cant_total_samples']
+    #        
+    #        test_generator = data_generator(paths, batch_size);
+    
+    
+    #bDebug = True
+    bDebug = False
+    
+    if bDebug :
+        
+        check_datasets( train_generator ) 
+        check_datasets( val_generator ) 
+    
+    model_params = { 'cant_cnn': 16,
+                     'cant_filtros': 48,
+                     'size_filtros': 3,
+                     'hidden_dims': 48,
+                     'drop_out': drop_out}
+    
+    target_lead_names =  ['II', 'V1']
+    default_lead_order = ['I', 'II', 'V1', 'V2', 'V3', 'V4', 'V5', 'V6']
+    
+    [_, target_lead_idx, _] = np.intersect1d(default_lead_order, target_lead_names,  assume_unique=True, return_indices=True)
+    
+    ds_config = { 
+                    'width': 1, # s
+                    'fs':    200 # Hz
+                    
+                }
+    
+    #win_in_samp = my_int(ds_config['width'] * ds_config['fs'])
+    win_in_samp = 128
+    hwin_in_samp = my_int(win_in_samp/2)
+    
+    #my_gan = WGAN( ecg_samp = win_in_samp, leads_generator_idx = target_lead_idx, lead_names = default_lead_order)
+    my_gan = WGANGP( ecg_samp = win_in_samp , leads_generator_idx = target_lead_idx, lead_names = default_lead_order)
+    
+    my_gan.train(train_generator, epochs=epochs, batch_size=batch_size, sample_interval=20)
+    
+    
+    #if all_lr.size == 0 :
+    #    
+    #    all_lr = np.logspace(-5, -3, 5)
+    #
+    #
+    #
+    #for this_lr in all_lr :
+    #    
+    #    model = define_model(model_params)
+    #    
+    #    print('LR: ' + str(this_lr) )
+    #    print('##########')
+    #    
+    #    #my_callback = MyCallbackClass()
+    #    
+    #    print('Start training @ ' + time.strftime("%a, %d %b %Y %H:%M:%S", time.localtime()))
+    #    start_time = time.time()
+    #    
+    #    train_steps = my_ceil(train_samples / batch_size)
+    #    val_steps = my_ceil(val_samples / batch_size)
+    #    
+    #    
+    #    
+    #    history = model.fit_generator(train_generator,
+    #                                  steps_per_epoch = train_steps,
+    #                                  epochs = epochs,
+    #                                  validation_data = val_generator,
+    #                                  validation_steps = my_int(val_steps/4),
+    #                                  callbacks=[ TerminateOnNaN(),
+    #                                              EarlyStopping(
+    #                                                           monitor='val_t_f1', 
+    #                                                           min_delta=0.001, 
+    #                                                           patience=10, 
+    #                                                           mode='max', 
+    #                                                           restore_best_weights=True),
+    #                                              LearningRateScheduler(lr_sched, verbose=1)
+    #                                            ]
+    #                                  )
+    #    
+    #    #    history = parallel_model.fit_generator(train_generator,
+    #    #                                  steps_per_epoch = np.ceil(train_samples / batch_size),
+    #    #                                  epochs = 50
+    #    #        #                          validation_data=(train_x, train_y),
+    #    ##                                  callbacks=[my_callback])
+    #    #                                  )
+    #    
+    #    #    history = parallel_model.fit_generator(train_generator,
+    #    #                                  steps_per_epoch = np.ceil(train_samples / batch_size),
+    #    #                                  validation_data=val_generator,
+    #    #                                  validation_steps = np.ceil(val_samples / batch_size),
+    #    #                                  epochs = 10
+    #    #        #                          validation_data=(train_x, train_y),
+    #    ##                                  callbacks=[my_callback])
+    #    #                                  )
+    #    #    
+    #    
+    #    
+    #    print('End training @ ' + time.strftime("%a, %d %b %Y %H:%M:%S", time.localtime()))
+    #    time_elapsed = time.time() - start_time
+    #
+    #    print( 'Time elapsed to train: ' + my_delta_time(time_elapsed) )
+    #    
+    #    result_path = os.path.join('.', 'results')
+    #    os.makedirs(result_path, exist_ok=True)
+    #    
+    #    result_path = os.path.join('.', 'images')
+    #    os.makedirs(result_path, exist_ok=True)
+    #    
+    #    model_id = time.strftime("%d_%b_%Y_%H_%M_%S", time.localtime()) + '_lr_{:3.3g}'.format(this_lr) 
+    #    model.save( os.path.join( result_path, model_id + 'qrs_detector_model_' + '.h5'))  # creates a HDF5 file 'my_model.h5'
+    #    np.save( os.path.join( result_path, model_id + '_history.npy'), {'history' : history})
+    #
+    #    bWithTestEval = False
+    #
+    #    if bWithTestEval :
+    #        
+    #        print('Build test generator ...')
+    #           
+    #        if test_generator == [] :
+    #            
+    #            if test_list_fn == '' :
+    #                
+    #                test_steps = 0
+    #                
+    #            else:
+    #                
+    #                test_samples, test_features, test_paths = get_dataset_size(test_list_fn)
+    #                
+    #                test_generator = data_generator(test_paths, batch_size)
+    #                
+    #                test_steps = my_ceil(test_samples / batch_size)
+    #
+    #
+    #    
+    #    #train_se = history.history['se']
+    #    ##val_se = my_callback.val_recalls
+    #    #
+    #    #train_pp = history.history['pp']
+    #    ##val_pp = my_callback.val_precisions
+    #    #
+    #    train_f1 = history.history['t_f1']
+    #    val_f1 = history.history['val_t_f1']
+    #    val_se = history.history['val_t_se']
+    #    val_pp = history.history['val_t_pp']
+    #    
+    #    train_loss = history.history['loss']
+    #    val_loss = history.history['val_loss']
+    #    
+    #    # Create count of the number of epochs
+    #    epoch_count = range(1, len(val_loss) + 1)
+    #
+    #    print('LR: ' + str(this_lr) )
+    #    print('##########')
+    #
+    #    train_eval = model.evaluate_generator(
+    #                            train_generator,
+    #                            steps = train_steps
+    #                            )
+    #    
+    #    
+    #    aux_str = 'Train\n-----\n'
+    #    for (metric_name, metric_val) in zip(model.metrics_names, train_eval):
+    #        aux_str += '{}: {:3.3g} '.format(metric_name, metric_val)
+    #    aux_str += '\n'
+    #    print(aux_str)
+    #    
+    #    val_eval = model.evaluate_generator(
+    #                            val_generator,
+    #                            steps = val_steps
+    #                            )
+    #    
+    #    
+    #    aux_str = 'Val\n-----\n'
+    #    for (metric_name, metric_val) in zip(model.metrics_names, val_eval):
+    #        aux_str += '{}: {:3.3g} '.format(metric_name, metric_val)
+    #    aux_str += '\n'
+    #    print(aux_str)
+    #    
+    #    
+    #    if bWithTestEval :
+    #    
+    #        if test_generator == [] :
+    #    
+    #            aux_str = 'Diferencia\n-------------\n'
+    #            for (metric_name, train_val, test_val) in zip(model.metrics_names, train_eval, val_eval):
+    #                aux_str += '{}: {:3.3g} '.format(metric_name, train_val - test_val)
+    #            aux_str += '\n'
+    #            print(aux_str)
+    #    
+    #        else:
+    #            
+    #            test_eval = model.evaluate_generator(
+    #                                    test_generator,
+    #                                    steps = test_steps
+    #                                    )
+    #            
+    #            
+    #            aux_str = 'Test\n-----\n'
+    #            for (metric_name, metric_val) in zip(model.metrics_names, test_eval):
+    #                aux_str += '{}: {:3.3g} '.format(metric_name, metric_val)
+    #            aux_str += '\n'
+    #            print(aux_str)
+    #                
+    #            
+    #            aux_str = 'Diferencia\n-------------\n'
+    #            for (metric_name, train_val, test_val) in zip(model.metrics_names, train_eval, test_eval):
+    #                aux_str += '{}: {:3.3g} '.format(metric_name, train_val - test_val)
+    #            aux_str += '\n'
+    #            print(aux_str)
+    #        
+    #    else:
+    #        
+    #        test_eval = [np.nan] * len(train_eval)
+    #
+    #
+    #    fig_hdl, axes = plt.subplots(2, 1, clear=True, sharex = True)
+    #
+    #    # Visualize F1 history
+    #    axes[0].plot(epoch_count, np.transpose(np.array((train_f1, val_f1, val_se, val_pp))))
+    #    axes[0].set_ylim([0.9, 1])
+    #    axes[0].legend(['train_f1', 'val_f1', 'val_se', 'val_pp' ])
+    #    axes[0].set_ylabel('F Score')
+    #    axes[0].set_title('F1 ' + '_lr_{:3.3g} '.format(this_lr) );
+    #    
+    #    axes[1].plot(epoch_count, train_loss, 'r--')
+    #    axes[1].plot(epoch_count, val_loss, 'b-')
+    #    axes[1].set_ylim([0, np.max(np.vstack([train_loss, val_loss]))])
+    #    axes[1].legend(['Train', 'Val'])
+    #    axes[1].set_xlabel('Epoch')
+    #    axes[1].set_ylabel('Loss')
+    #    axes[1].set_title('Loss' + '_lr_{:3.3g} '.format(this_lr) );
+    #        
+    ##    aux_metrics = [ [train_eval[ii], val_eval[ii], test_eval[ii]]  for ii in range(1,len(model.metrics_names)) ]
+    ##    aux_metrics = np.transpose(np.array(aux_metrics))
+    ##    
+    ##    axes[0,1].plot(range(3), aux_metrics, 'o--' )
+    ##    axes[0,1].set_xticks(np.arange(3), ('Train', 'Val', 'Test'))
+    ##    axes[0,1].legend(model.metrics_names[1:])
+    ##    axes[0,1].set_title('Métricas en los datasets ' + '_lr_{:3.3g} '.format(this_lr) );
+    ##    
+    ##    
+    ##    axes[1,1].plot(range(3), np.array([train_eval[0], val_eval[0], test_eval[0]]) )
+    ##    axes[1,1].set_xticks(np.arange(3), ('Train', 'Val', 'Test'))
+    ##    axes[1,1].legend(['Loss'])
+    ##    axes[1,1].set_title('Loss en los datasets ' + '_lr_{:3.3g} '.format(this_lr) );
+    #    
+    #    plt.savefig(os.path.join( result_path, model_id + '.jpg'), dpi=300)
+    #
