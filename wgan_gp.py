@@ -13,6 +13,7 @@ from keras.layers.advanced_activations import LeakyReLU, ReLU
 from keras.layers.convolutional import UpSampling1D, Conv1D, Conv2DTranspose
 #from keras.layers.convolutional import UpSampling2D, Conv2D
 from keras.models import Sequential, Model
+
 from keras.optimizers import RMSprop, Adam
 from functools import partial
 
@@ -39,7 +40,7 @@ class RandomWeightedAverage(_Merge):
 
 class WGANGP():
     
-    def __init__(self, ecg_samp = 2000, leads_generator_idx = [1, 2], lead_names = ['I', 'II', 'V1', 'V2', 'V3', 'V4', 'V5', 'V6'] ):
+    def __init__(self, ecg_samp = 2000, leads_generator_idx = [1, 2], lead_names = ['I', 'II', 'V1', 'V2', 'V3', 'V4', 'V5', 'V6'], learning_rate = 1e-5 ):
         
         self.ecg_samp = ecg_samp
 #        self.ecg_leads = len(lead_names)
@@ -54,7 +55,7 @@ class WGANGP():
         
         # del paper de audio : escala de penalidad para el gradiente 
         self.k_lambda = 10
-        self.latent_dim = 100
+        self.latent_dim = self.ecg_samp // 10
         self.latent_shape = (self.latent_dim, 1)
 
         self.leads_generator_idx = leads_generator_idx
@@ -64,7 +65,7 @@ class WGANGP():
         # Following parameter and optimizer set as recommended in paper
         self.n_critic = 5
 #        optimizer = RMSprop(lr=0.00005)
-        optimizer = Adam(lr=1e-5, beta_1 = 0.5, beta_2 = 0.9)
+        optimizer = Adam(lr=learning_rate, beta_1 = 0.5, beta_2 = 0.9)
 
         # for debug
         self.first_noise = np.random.uniform(-1, 1, (1, self.latent_dim) )
@@ -165,8 +166,6 @@ class WGANGP():
         for layer in self.generator_alone.layers:
             layer.trainable = False
         discriminator.trainable = True
-        for layer in self.generator_alone.layers:
-            layer.trainable = False
         self.generator_alone.trainable = False
         
         # The discriminator_model is more complex. It takes both real image samples and random
@@ -219,6 +218,9 @@ class WGANGP():
                                     loss=[self.wasserstein_loss,
                                           self.wasserstein_loss,
                                           partial_gp_loss])
+#                                    loss=[self.wasserstein_loss,
+#                                          self.wasserstein_loss,
+#                                          partial_gp_loss])
 
 
 #    def gradient_penalty_loss(self, y_true, y_pred, averaged_samples):
@@ -298,7 +300,8 @@ class WGANGP():
     
 
     def build_generator(self):
-        with tf.device('/GPU:0'):
+#        with tf.device('/GPU:0'):
+        with tf.device('/CPU:0'):
 
             model = Sequential()
     
@@ -316,13 +319,12 @@ class WGANGP():
     #        model.add(Activation("tanh"))
             
     
-            dim = 32
+            dim = 2
             dim_mul = 16
             base_dim = int(np.max( [1, self.ecg_samp/(4**3)] ))
 
             model.add(Dense( base_dim * dim * dim_mul, activation="relu", input_dim=self.latent_dim))
             model.add(Reshape(( base_dim, dim * dim_mul)))
-#            model.add(UpSampling1D(size=4)(out)
             
             dim_mul //= 2
                 
@@ -331,7 +333,6 @@ class WGANGP():
             model.add(Lambda(lambda x: K.squeeze(x, axis=1)))
             model.add(BatchNormalization(momentum=0.8))
             model.add(Activation("relu"))
-#            out = UpSampling1D(size=4)(out)
 
             dim_mul //= 2
             model.add(Lambda(lambda x: K.expand_dims(x, axis=1)))
@@ -339,7 +340,6 @@ class WGANGP():
             model.add(Lambda(lambda x: K.squeeze(x, axis=1)))
             model.add(BatchNormalization(momentum=0.8))
             model.add(Activation("relu"))
-#            out = UpSampling1D(size=4)(out)
             
             dim_mul //= 2
             model.add(Lambda(lambda x: K.expand_dims(x, axis=1)))
@@ -349,22 +349,13 @@ class WGANGP():
             
             model.summary()
 
-#            noise = Input(shape=(self.latent_dim,) )
-#
-#            out = model(noise)
-#            the_model = Model(noise, out)
-#    
-#            the_model.summary()
-#
-#
-#        return the_model
-
             return model
     
     
     def build_critic(self):
 
-        with tf.device('/GPU:0'):
+#        with tf.device('/GPU:0'):
+        with tf.device('/CPU:0'):
 
             model = Sequential()
 
@@ -519,6 +510,11 @@ class WGANGP():
         positive_y = np.ones((batch_size, 1), dtype=np.float32)
         negative_y = -positive_y
         dummy_y = np.zeros((batch_size, 1), dtype=np.float32)
+
+#        # sample once
+#        X_train = next(data_gen)
+#        
+#        X_train = X_train[:, :, 1:2] / self.k_ui16
         
         for epoch in range(epochs):
             
@@ -535,8 +531,10 @@ class WGANGP():
                 
                 X_train = next(data_gen)
                 
-                X_train = X_train[:, :, 1:2] / self.k_ui16
+                latent_img = X_train[:, :, 1:2] / self.k_ui16
 
+#                latent_img = X_train + np.random.normal(0, np.sqrt(np.var(X_train)/10), X_train.shape)
+                
                 # Signal plus noise
 #                latent_img = X_train[:, :, self.leads_generator_idx]
 #                latent_img =+ np.random.normal(0, np.sqrt(np.var(latent_img)/20), latent_img.shape)                
@@ -546,7 +544,7 @@ class WGANGP():
                 noise = np.random.uniform(-1, 1, (batch_size, self.latent_dim))
                 
                 discriminator_loss.append(self.critic_model.train_on_batch(
-                                                                        [X_train, noise],
+                                                                        [latent_img, noise],
                                                                         [positive_y, negative_y, dummy_y]))
             generator_loss.append(self.generator_model.train_on_batch(np.random.rand(batch_size, self.latent_dim), positive_y))
         
@@ -554,7 +552,7 @@ class WGANGP():
             print ("%d [D loss: %f] [G loss: %f]" % (epoch, discriminator_loss[-1][-1], generator_loss[-1]))
         
             if epoch % sample_interval == 0:
-                self.sample_images(epoch, X_train)
+                self.sample_images(epoch, latent_img)
                 
             if epoch % 100 == 0:
                 self.critic_model.save( "checkpoint/critic.h5" )  # creates a HDF5 file 'my_model.h5'
@@ -580,11 +578,11 @@ class WGANGP():
         plt.cla()
         plt.plot( gen_imgs, label = 'gen' )
         plt.plot( np.squeeze(X_train[0,:]), label = 'real' )
-        plt.plot( first_img, 'g:', label = 'first_noise' )
-        plt.plot( self.first_img, 'r--', label = 'first_img' )
+#        plt.plot( first_img, 'g:', label = 'first_noise' )
+#        plt.plot( self.first_img, 'r--', label = 'first_img' )
         plt.legend( )
         
-        fig.savefig("images/epoch_{:d}.png".format(epoch) )
+        fig.savefig("images/epoch_{:d}.png".format(epoch), dpi=150 )
 
 if __name__ == '__main__':
     wgan = WGANGP()
