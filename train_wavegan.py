@@ -15,7 +15,51 @@ from six.moves import xrange
 #import loader
 from wavegan import WaveGANGenerator, WaveGANDiscriminator
 
-from ecg_gan_dnn import get_dataset_size, data_generator
+from ecg_gan_dnn import get_dataset_size
+
+
+
+def data_generator( datasets, batch_size, dg_sample_size):
+    """A generator yields (source, target) arrays for training."""
+
+    hwin_in_samp = dg_sample_size // 2
+
+    while True:
+          
+        cant_ds = len(datasets)
+    
+        # Shuffle datasets
+        datasets = np.random.choice(datasets, cant_ds, replace=False )
+        
+        for ds_idx in range(cant_ds):
+            
+            this_ds = datasets[ds_idx]
+#            print('\nEntering:' + this_ds + '\n')
+            train_ds = np.load(str(this_ds, 'utf-8'))[()]
+            signals = train_ds['signals']
+            cant_recordings = len(signals)
+    
+            # shuffle recordings
+            rec_idx = np.random.choice(np.arange(cant_recordings), cant_recordings, replace=False )
+        
+            for ii in rec_idx:
+
+                train_x = signals[ii]
+                cant_samples = train_x.shape[0]
+                
+                sample_idx = np.random.choice(np.arange(2*dg_sample_size, cant_samples-2*dg_sample_size), batch_size, replace=False )
+                
+                # trampilla para sync
+                
+                tt = [ jj + np.argmax(np.abs(train_x[ jj:jj+dg_sample_size,1]))  for jj in sample_idx ]
+                
+                xx = np.array([ train_x[ jj-hwin_in_samp:jj+hwin_in_samp, 1:2] for jj in tt ], dtype= np.float32)
+                
+                xx = np.stack( xx / (2**15-1), axis=0)
+                
+                # Get the samples you'll use in this batch
+                yield ( xx )
+
 
 """
   Trains a WaveGAN
@@ -45,11 +89,14 @@ def train(args):
       
   train_samples, train_recordings, train_paths = get_dataset_size(train_list_fn)
     
-  train_generator = data_generator(train_paths, args.train_batch_size, dg_sample_size = args.data_slice_len)
-      
-  x = next(train_generator)
+#  train_generator = data_generator(train_paths, args.train_batch_size, dg_sample_size = args.data_slice_len)
+
+  with tf.name_scope('loader'):
     
-  x = tf.convert_to_tensor( x[:, :, 1:2] / (2**15-1), dtype=tf.float32 )
+      x = tf.data.Dataset.from_generator(data_generator, (tf.float32), (args.train_batch_size, args.data_slice_len, 1) ,args = (train_paths, args.train_batch_size, args.data_slice_len) )
+      iterator = x.make_one_shot_iterator()
+      x = iterator.get_next()
+      
   
   # Make z vector
   z = tf.random_uniform([args.train_batch_size, args.wavegan_latent_dim], -1., 1., dtype=tf.float32)
@@ -74,8 +121,8 @@ def train(args):
   print('Total params: {} ({:.2f} MB)'.format(nparams, (float(nparams) * 4) / (1024 * 1024)))
 
   # Summarize
-#  tf.summary.audio('x', x, args.data_sample_rate)
-#  tf.summary.audio('G_z', G_z, args.data_sample_rate)
+  tf.summary.audio('x', x, args.data_sample_rate)
+  tf.summary.audio('G_z', G_z, args.data_sample_rate)
   G_z_rms = tf.sqrt(tf.reduce_mean(tf.square(G_z[:, :, 0]), axis=1))
   x_rms = tf.sqrt(tf.reduce_mean(tf.square(x[:, :, 0]), axis=1))
   tf.summary.histogram('x_rms_batch', x_rms)
@@ -288,17 +335,17 @@ def infer(args):
   saver = tf.train.Saver(G_vars + [global_step])
 
   # Export graph
-#  tf.train.write_graph(tf.get_default_graph(), infer_dir, 'infer.pbtxt')
+  tf.train.write_graph(tf.get_default_graph(), infer_dir, 'infer.pbtxt')
 
   # Export MetaGraph
-#  infer_metagraph_fp = os.path.join(infer_dir, 'infer.meta')
-#  tf.train.export_meta_graph(
-#      filename=infer_metagraph_fp,
-#      clear_devices=True,
-#      saver_def=saver.as_saver_def())
+  infer_metagraph_fp = os.path.join(infer_dir, 'infer.meta')
+  tf.train.export_meta_graph(
+      filename=infer_metagraph_fp,
+      clear_devices=True,
+      saver_def=saver.as_saver_def())
 
   # Reset graph (in case training afterwards)
-#  tf.reset_default_graph()
+  tf.reset_default_graph()
 
 
 """
@@ -606,7 +653,7 @@ if __name__ == '__main__':
 
   parser.set_defaults(
     data_dir=None,
-    data_sample_rate=16000,
+    data_sample_rate=200,
     data_slice_len=16384,
     data_num_channels=1,
     data_overlap_ratio=0.,
@@ -665,7 +712,7 @@ if __name__ == '__main__':
 #    if len(fps) == 0:
 #      raise Exception('Did not find any audio files in specified directory')
 #    print('Found {} audio files in specified directory'.format(len(fps)))
-#    infer(args)
+    infer(args)
     train(args)
   elif args.mode == 'preview':
     preview(args)
