@@ -356,6 +356,16 @@ if __name__ == '__main__':
     epochs = args.epochs
     
     
+    ds_config = { 
+                    'width': 1, # s
+                    'fs':    200 # Hz
+                    
+                }
+    
+    #win_in_samp = my_int(ds_config['width'] * ds_config['fs'])
+    win_in_samp = 128
+    hwin_in_samp = my_int(win_in_samp/2)
+    
     ## Train
     print('Build train data-generator ...')
     
@@ -364,7 +374,7 @@ if __name__ == '__main__':
     
     train_samples, train_recordings, train_paths = get_dataset_size(train_list_fn)
     
-    train_generator = data_generator(train_paths, batch_size)
+    train_generator = data_generator(train_paths, batch_size, win_in_samp)
     
     if val_list_fn == '':
         
@@ -376,7 +386,7 @@ if __name__ == '__main__':
         
         val_samples, val_recordings, val_paths = get_dataset_size(val_list_fn)
         
-        val_generator = data_generator(val_paths, batch_size)
+        val_generator = data_generator(val_paths, batch_size, win_in_samp)
     
     
     test_generator = []
@@ -428,20 +438,11 @@ if __name__ == '__main__':
     
     [_, target_lead_idx, _] = np.intersect1d(default_lead_order, target_lead_names,  assume_unique=True, return_indices=True)
     
-    ds_config = { 
-                    'width': 1, # s
-                    'fs':    200 # Hz
-                    
-                }
-    
-    #win_in_samp = my_int(ds_config['width'] * ds_config['fs'])
-    win_in_samp = 128
-    hwin_in_samp = my_int(win_in_samp/2)
     
     #my_gan = WGAN( ecg_samp = win_in_samp, leads_generator_idx = target_lead_idx, lead_names = default_lead_order)
-    my_gan = WGANGP( ecg_samp = win_in_samp , leads_generator_idx = target_lead_idx, lead_names = default_lead_order)
+    my_gan = WGANGP( ecg_samp = win_in_samp , leads_generator_idx = target_lead_idx, lead_names = default_lead_order, learning_rate = all_lr[0] )
     
-    my_gan.train(train_generator, epochs=epochs, batch_size=batch_size, sample_interval=20)
+    my_gan.train(train_generator, epochs=epochs, batch_size=batch_size, sample_interval=50)
     
     
     #if all_lr.size == 0 :
