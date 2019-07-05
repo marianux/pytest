@@ -126,7 +126,7 @@ print(opt)
 cuda = True if torch.cuda.is_available() else False
 #cuda = False
 
-ecg_samp = 128
+ecg_samp = 1000
 ecg_leads = 1
 k_ui16 = 2**15-1
 
