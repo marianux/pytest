@@ -88,10 +88,11 @@ def data_generator( datasets, batch_size, dg_sample_size):
                 
                 # trampilla para sync
                 
-                tt = [ jj + np.argmax(np.abs(train_x[ jj:jj+dg_sample_size,1]))  for jj in sample_idx ]
+#                tt = [ jj + np.argmax(np.abs(train_x[ jj:jj+dg_sample_size,1]))  for jj in sample_idx ]
+#                xx = [ train_x[ jj-hwin_in_samp:jj+hwin_in_samp,:] for jj in tt ]
                 
-                xx = [ train_x[ jj-hwin_in_samp:jj+hwin_in_samp,:] for jj in tt ]
-                
+                xx = [ train_x[ jj-hwin_in_samp:jj+hwin_in_samp,:] for jj in sample_idx ]
+
                 xx = np.stack(xx, axis=0)
 
                 # Get the samples you'll use in this batch
@@ -123,18 +124,23 @@ opt = parser.parse_args()
 print(opt)
 
 
-cuda = True if torch.cuda.is_available() else False
-#cuda = False
+#cuda = True if torch.cuda.is_available() else False
+cuda = False
 
-ecg_samp = 1000
-ecg_leads = 1
+ecg_samp = 600
 k_ui16 = 2**15-1
+leads_generator_idx = [1, 2]
+
+ecg_leads = len(leads_generator_idx)
+
+lead_names = ['I', 'II', 'V1', 'V2', 'V3', 'V4', 'V5', 'V6']
 
 train_samples, train_recordings, train_paths = get_dataset_size(opt.train_list)
 
 train_generator = data_generator(train_paths, opt.batch_size, ecg_samp)
 
-img_shape = (ecg_samp, ecg_leads)
+imgz_shape = (ecg_samp, len(leads_generator_idx))
+img_shape = (ecg_samp, len(lead_names))
 
 
 class Generator(nn.Module):
@@ -149,12 +155,13 @@ class Generator(nn.Module):
             return layers
 
         self.model = nn.Sequential(
-            *block(opt.latent_dim, 128, normalize=False),
+            *block(int(np.prod(imgz_shape)), 128, normalize=False),
             *block(128, 256),
             *block(256, 512),
             *block(512, 1024),
             nn.Linear(1024, int(np.prod(img_shape))),
             nn.Tanh()
+            
         )
 
     def forward(self, z):
@@ -238,6 +245,21 @@ def compute_gradient_penalty(D, real_samples, fake_samples):
     return gradient_penalty
 
 
+def plot_examples(fake_imgs, imgs):
+
+    fig = plt.figure(1)
+    
+    for ii in leads_generator_idx + [3]:
+        
+        plt.cla()
+        
+        plt.plot( np.squeeze(fake_imgs.data[0,:,ii].cpu().detach().numpy()), label = lead_names[ii] + 'gen' )
+        plt.plot( np.squeeze(imgs[0,:,ii]), label = 'real' )
+        plt.legend( )
+        plt.title(lead_names[ii])
+        
+        fig.savefig("images/epoch_{:d}_{:s}.png".format(epoch, lead_names[ii]), dpi=150 )
+
 
 
 # ----------
@@ -250,11 +272,14 @@ for epoch in range(opt.n_epochs):
 
     imgs = next(train_generator)
     
-    imgs = imgs[:, :, 1:2] / k_ui16
+    imgs = imgs / k_ui16
+    imgs_z = imgs[:, :, leads_generator_idx]
+    imgs_z = imgs_z + np.random.normal(0, np.sqrt(np.var(imgs_z)/20), imgs_z.shape)
+    imgs_z = imgs_z.reshape( (imgs_z.shape[0], -1) , order='F')
 
     # Configure input
     real_imgs = Variable((torch.from_numpy(imgs)).type(Tensor))
-
+    
     # ---------------------
     #  Train Discriminator
     # ---------------------
@@ -262,7 +287,9 @@ for epoch in range(opt.n_epochs):
     optimizer_D.zero_grad()
 
     # Sample noise as generator input
-    z = Variable(Tensor(np.random.normal(0, 1, (imgs.shape[0], opt.latent_dim))))
+#    z = Variable(Tensor(np.random.normal(0, 1, (imgs.shape[0], opt.latent_dim))))
+#    z = Variable(Tensor(np.random.uniform(-1, 1, (imgs.shape[0], opt.latent_dim))))
+    z = Variable((torch.from_numpy(imgs_z)).type(Tensor))
 
     # Generate a batch of images
     fake_imgs = generator(z)
@@ -304,13 +331,8 @@ for epoch in range(opt.n_epochs):
         )
 
         if batches_done % opt.sample_interval == 0:
-            fig = plt.figure(1)
-            plt.cla()
-            plt.plot( np.squeeze(fake_imgs.data[0,:,:].cpu().detach().numpy()), label = 'gen' )
-            plt.plot( np.squeeze(imgs[0,:,:]), label = 'real' )
-            plt.legend( )
-            
-            fig.savefig("images/epoch_{:d}.png".format(epoch), dpi=150 )
 
+            plot_examples(fake_imgs, imgs)
+            
         batches_done += opt.n_critic
 
