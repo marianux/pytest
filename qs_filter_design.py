@@ -1,70 +1,88 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-% (Internal) Design the wavelet decomposition filters for wavedet algorithm
-%
-% Prototype:
-% ----------
-% q_filters = qs_filter_design(scales, fs, N)
-% 
-% Description: 
-% ------------
-% Mimics the transfer function of the filters used for ECG delineation in
-% [Martinez et al. 2004] for an arbitrary sampling frequency and filter order N.
-% 
-% Martinez et al. "A Wavelet-Based ECG Delineator: Evaluation on Standard
-% Databases" IEEE TRANSACTIONS ON BIOMEDICAL ENGINEERING, VOL. 51, NO. 4,
-% APRIL 2004.
-% 
-% WARNING :
-% ---------
-% As this routines iterates through several configurations in order to
-% converge, the user should check the transfer functions of the filters. My
-% suggestion is once you obtain a desired filter bank for a given Fs or
-% configuration, save or cache it in a .mat file in order to use it during
-% operation. For example, if you usually work with signals sampled at 360
-% Hz, a good choice is to have a cached version of the filters for this Fs
-% in a .mat file called "wt_filters_6 scales_360 Hz.mat". You can use this
-% function on-line with your algorithm at your own risk.
-% 
-% Examples :
-% ----------
-% 
-% q_filters = qs_filter_design(4, 250);
-% 
-% q_filters = qs_filter_design(5, 360);
-% 
-% q_filters = qs_filter_design(6, 1000);
-% 
-% you can check filter characteristics using:
-% 
-% fss = [250 360 500 1000]; %Hz
-% for fs  = fss
-%     fvtool(q_filters, 'fs', fs )
-% end
-% 
-% Author: Mariano Llamedo Soria (llamedom at frba.utn.edu.ar)
-% Version: 0.1 beta
-% Birthdate: 17/2/11
-% Translated to Python on Wed Sep  4 10:57:51 2019
-% Last update: 22/02/13
-% Copyright 2008-2015
-% 
-"""
 
 import numbers
-from numpy import max, abs, round, all, log10, pi, diff, array, argmax, arange, logspace, linspace, ones, exp, mean, median
-from scipy.signal import freqz, remez, firls, convolve
+from numpy import max, abs, round, all, log10, pi, diff, array,  logspace, linspace,  exp, mean, finfo
+from scipy.signal import freqz, remez
 
 import matplotlib.pyplot as plt
 
+def plot_response(xx, F):
+    
+    _,g_amp_real = freqz(xx, 1, F * pi); g_amp_real = 20*log10(abs(g_amp_real)); plt.plot(F, g_amp_real); plt.show()
+    
+    return
 
 def find_idx(x):
-    indexes = array(x.nonzero()).flatten()
+    indexes = array(x.nonzero(), dtype='uint').flatten()
     return(indexes)
 
-def qs_filter_design (scales = [4], fs = 250, N = None):
+def qs_filter_design(scales = [4], fs = 250, N = None, debug = False):
+    """
+    (*ecg-kit internal*) Design the wavelet decomposition filters for wavedet algorithm
 
+    Mimics the transfer function of the filters used for ECG delineation in
+    Martinez2004_ for an arbitrary sampling frequency and filter order N.
+    The original sampling rate is 250 Hz, this routine calculates a new set of 
+    filters that mimics the original magnitude response.
+
+    Parameters
+    ----------
+    scales : : *array_like, optional*
+        The desired scales to calculate from from 1 to 6. *Default: 4*
+    fs  : : *scalar, optional*
+        The target frequency of the wavelet filters. *Default: 250*
+    N  : : *int, optional*
+        The order of the filters in case the estimation of the order fails to 
+        converge. *Default: automatically estimated*
+    debug : : *boolean, optional*
+            A flag to display some extra info and frequency response of the
+            designed filters. *Default: Falsef*
+
+
+    Returns
+    -------
+    out : : *tuple*
+        A tuple with the FIR differentiators for each scale defined in **scales**.
+
+    See Also
+    --------
+    
+    Examples
+    --------
+    >>> wt_filters = qs_filter_design( scales = np.arange(1,5), fs = 500, debug=True )
+    
+    >>> wt_filters = qs_filter_design( scales = 4, fs = 360)
+
+    WARNING
+    -------
+    As this routines iterates through several configurations in order to
+    converge, the user should check the transfer functions of the filters. My
+    suggestion is once you obtain a desired filter bank for a given Fs or
+    configuration, save or cache it in a .mat file in order to use it during
+    operation. For example, if you usually work with signals sampled at 360
+    Hz, a good choice is to have a cached version of the filters for this Fs
+    in a .mat file called "wt_filters_6 scales_360 Hz.mat". You can use this
+    function on-line with your algorithm at your own risk.
+
+    References
+    ----------
+    .. [#Martinez2004] Martinez et al. "A Wavelet-Based ECG Delineator: Evaluation on Standard
+           Databases" IEEE TRANSACTIONS ON BIOMEDICAL ENGINEERING, VOL. 51, NO. 4,
+           APRIL 2004.
+
+    Author
+    ------    
+    :Author: Mariano Llamedo Soria (llamedom at frba.utn.edu.ar)
+    :Version: 0.1 beta
+    :Birthdate: 17/2/11 (Translated to Python on Wed Sep  4 10:57:51 2019)
+    :Last update: 22/02/13
+    :Copyright: 2008-2019
+
+    """
+    
+    eps = finfo('float32').eps
+    
     filter_count = 0
     q_filters = []
 
@@ -118,14 +136,17 @@ def qs_filter_design (scales = [4], fs = 250, N = None):
     
         F, g_amp = freqz(empirical_tf[ii],1, F_log)
         F = F * f_ratio / pi
-        g_amp = 20*log10(abs(g_amp))
+        g_amp = 20*log10(abs(g_amp)+eps)
     
         #averiguo hasta qu� muestra se comporta como un derivador, ya que ser�
         #un par�metro de dise�o.
         slope_aux = diff( g_amp )
         
-        end_diff_idx = find_idx(slope_aux < 0.95*slope_aux[0])[0]
-    
+        end_diff_idx = find_idx(slope_aux < 0.9*slope_aux[0])[0]
+
+#        plt.plot( slope_aux[:end_diff_idx])
+#        plt.show()
+        
         #dise�o un derivador hasta dicha frecuencia, con una banda de
         #transici�n dada por la expresion , cuando sea posible.
         ftrans = min([70, 251 * exp(-0.63*(ii+1))])
@@ -135,9 +156,15 @@ def qs_filter_design (scales = [4], fs = 250, N = None):
             diff_order += 1
 
 
-        # comienzo de la banda de atenuación, cuando alcanza el 95% de la atenuación en Nyquist
-        att_stopband = mean(g_amp[ int(mean([end_diff_idx, len(g_amp)])): ])
-        start_stop_idx = find_idx(g_amp < 0.95*att_stopband)[0]
+        # comienzo de la banda de atenuación, cuando alcanza el 95% de la atenuación 
+        # en Nyquist. Evito Nyq dado que a veces hay -inf        
+        att_stopband = mean(g_amp[ int(mean([end_diff_idx, Grid_size])):-2 ])
+        start_stop_idx = find_idx(g_amp < 0.95*att_stopband)[0] 
+        
+        if(start_stop_idx <= end_diff_idx): 
+            # no decae nunca el derivador, fijo una transición relajada
+            start_stop_idx = int(end_diff_idx + 0.9*(Grid_size-end_diff_idx))
+        
         
         #[msgstr, msgid] = lastwarn
         #itero hasta que se dise�a correctamente.
@@ -150,83 +177,100 @@ def qs_filter_design (scales = [4], fs = 250, N = None):
         
         while( jj < design_iter_attemps ):
             
-            Hd = remez( int(effective_order), [0.0, F[end_diff_idx], F[start_stop_idx], 1.0], [1.0, 0.0], type='differentiator', fs = 2 )
-            
-            _,g_amp_real = freqz(Hd, 1, F * pi);g_amp_real = abs(g_amp_real);plt.plot(F, 20*log10(g_amp_real)); plt.show()
-            plt.plot(Hd); plt.show()
-            
-#            if(strcmpi(msgid,'signal:firpm:DidNotConverge')):
-#                #fallo en la convergencia, iteramos de nuevo.
-#                #recorro linealmente por el rango +10:-50
-#                effective_order = round(diff_order * aux_seq[jj])
-#                #Los effective_order tienen que ser necesariamente pares para el dise�o del derivador.
-#                if( effective_order % 2 != 0 ):
-#                    effective_order += 1
-#                end            
-#                jj += 1
-#            else:
-#                jj = design_iter_attemps
-#            end
+            try:
+                
+                designed_ok = False;
+                Hd = remez( int(effective_order), [0.0, F[end_diff_idx], F[start_stop_idx], 1.0], [1.0, 0.0], type='differentiator', fs = 2 )
+                
+            except ValueError as ex_ve:
+                
+#                template = "Arguments:{0!r}"
+#                message = template.format(ex_ve.args)
+#                print(message)
+                #fallo en la convergencia, iteramos de nuevo.
+                #recorro linealmente por el rango +10:-50
+                effective_order = round(diff_order * aux_seq[jj])
+                #Los effective_order tienen que ser necesariamente pares para el dise�o del derivador.
+                if( effective_order % 2 != 0 ):
+                    effective_order += 1
+                
+                # debug            
+                if debug:
+                    print( 'Trying order {0}\n'.format(effective_order))
 
-        
-#        if(strcmpi(msgid,'signal:firpm:DidNotConverge'))
-#        #fallo en la convergencia, reportamos el error.
-#            error('qs_filter_design:Impossible2Design', 'Impossible to design the differentiator filter. Please try another N value, or check the filters transfer functions manually.')
-#        end
+                jj += 1
+                
+            except Exception as ex:
+                
+                template = "An exception of type {0} occurred. Arguments:\n{1!r}"
+                message = template.format(type(ex).__name__, ex.args)
+                print(message)
+                
+            else:
+                designed_ok = True;
+                jj = design_iter_attemps
+            
+        if(not designed_ok):
+            #fallo en la convergencia, reportamos el error.
+#            ('qs_filter_design:Impossible2Design', '')
+            raise( ValueError("Impossible to design the differentiator filter. Please try another N value, or check the filters transfer functions manually.") )
+
         
         #Vuelvo a ver la transferencia real del derivador dise�ado y del filtro
         #a emular para que tengan una respuesta similar en la zona en que se
         #comporta como derivador. Averiguo el factor de escala entre ambas
         #transferencias.
         
-        g_amp_real = freqz(Hd, 1, F * pi)
-        g_amp_real = abs(g_amp_real)
+        _, g_amp_real = freqz(Hd, 1, F * pi)
+        g_amp_real = 20*log10(abs(g_amp_real))
         
-        aux_idx = round(end_diff_idx/2)
-        aux_scale = g_amp[aux_idx]/g_amp_real[aux_idx]
+        aux_idx = int(round(end_diff_idx/2))
+        aux_scale = g_amp[aux_idx]-g_amp_real[aux_idx]
         
         #Escalo la zona del derivador.
-        Hd = Hd * aux_scale
-        g_amp_real = g_amp_real * aux_scale
-        
-    
-        #ahora dise�o un filtro de compensaci�n para que la zona en que no se
-        #deriva sea similar al filtro de referencia. Esta ir� desde el m�ximo
-        #de la transferencia pasobanda hasta donde haya5una amplitud mayor a
-        #0.5 veces.
-        max_idx = argmax(g_amp)
-    
-        aux_3db_unique = find_idx( g_amp_real > 0.5 and g_amp > 0.5)[-1]
-            
-        if( max_idx >= aux_3db_unique):
-            max_idx = end_diff_idx
+        Hd = Hd * 10**(aux_scale/20)
 
-        aux_idx =  arange(max_idx, aux_3db_unique)
+        # debug: show frequency response            
+        if debug:
+            F_ref = logspace(-3, log10(f_ref/2), Grid_size)
+            F_tgt = logspace(-3, log10(fs/2), Grid_size)
+
+            _,g_amp_real = freqz(Hd, 1, F_tgt, fs = fs ); g_amp_real = 20*log10(abs(g_amp_real)); 
+            _,g_amp_ref = freqz(empirical_tf[ii], 1, F_ref, fs = f_ref ); g_amp_ref = 20*log10(abs(g_amp_ref)); 
+            
+            plt.plot(F_tgt, g_amp_real, label='designed@'+str(fs)+'Hz'); 
+            plt.plot(F_ref, g_amp_ref, label='paper@250Hz'); 
+            plt.axvspan(0, F[end_diff_idx], color='red', alpha=0.2, label='diff. BW'); 
+            plt.legend(); 
+            
+            plt.ylim([1.1*min(g_amp_real), 1.1*max([g_amp_real, g_amp_ref]) ]); 
+            plt.title('Scale ' + str(ii+1) + ': full bandwith'); 
+            plt.show()
+
+            F_diff = logspace(-3, log10(f_ref/2), Grid_size)
+
+            _,g_amp_real = freqz(Hd, 1, F_diff, fs = fs ); g_amp_real = abs(g_amp_real); 
+            _,g_amp_ref = freqz(empirical_tf[ii], 1, F_diff, fs = f_ref ); g_amp_ref = abs(g_amp_ref); 
+            
+            plt.cla()
+            plt.loglog(F_diff, g_amp_real, label='designed@'+str(fs)+'Hz'); 
+            plt.loglog(F_diff, g_amp_ref, label='paper@250Hz'); 
+            plt.axvspan(0, F[end_diff_idx], color='red', alpha=0.2, label='diff. BW'); 
+            plt.legend(); 
+            
+            plt.ylim([1.1*min(g_amp_real), 1.1*max([g_amp_real, g_amp_ref]) ]); 
+            plt.title('Escala ' + str(ii+1) + ': differentiator bandwidth'); 
+            plt.show()
     
-        #Creo una grilla de frecuencia - magnitud arbitraria para el dise�o del
-        #filtro. Esta transferencia no deber� afectar la zona derivadora (H(w)
-        #= 1) y compensar la zona indicada por aux_idx, emulando la
-        #transferencia de referencia y teniendo un valor de atenuaci�n
-        #considerable en Nyquist (H(w) = 1e-3)
-        F_comp = [0, max([0.9*F[end_diff_idx], (F[max_idx]-F[end_diff_idx])/2]), F[aux_idx], 1]
-        g_amp_comp = [1, 1, g_amp[aux_idx]/g_amp_real[aux_idx], 1e-3]
-        W = ones(1, len(F_comp))
-        W[2:-2] = 10
-    
-        #Se dise�a el filtro 
-        Hd_comp = firls(diff_order, F_comp, g_amp_comp)
-    
-        # y se cascadea al original.
-        Hd = convolve(Hd, Hd_comp)
-    
-        q_filters[filter_count] = Hd
+        q_filters += [Hd]
         
         filter_count += 1
     
     return(q_filters)
     
 if __name__ == '__main__':
-    qs_filter_design()
+#    qs_filter_design( )
+    qs_filter_design( scales = np.arange(1,5), fs = 360 )
     
 
     

@@ -26,6 +26,8 @@ import argparse as ap
 import re
 import matplotlib.pyplot as plt
 
+from qs_filter_design import qs_filter_design
+
 def get_records( db_path, db_name ):
 
     all_records = []
@@ -207,6 +209,8 @@ def make_dataset(records, data_path, ds_config, leads_x_rec = [], data_aumentati
     [_, target_lead_idx, _] = np.intersect1d(default_lead_order, target_lead_names,  assume_unique=True, return_indices=True)
 
 
+    wt_filters = qs_filter_design( scales = np.arange(2,5), fs = ds_config['target_fs'] )
+
 #    for this_rec in records:
     for ii in np.arange(start_beat_idx, len(records)):
 
@@ -241,6 +245,16 @@ def make_dataset(records, data_path, ds_config, leads_x_rec = [], data_aumentati
             
         data = median_baseline_removal( data, fs = ds_config['target_fs'])
 # x_st = 200000; x_off = 10000; plt.plot(data[x_st:x_st+x_off,:]); plt.show()
+        
+        # WT transform
+        wt_data =  np.dstack([np.roll(sig.lfilter( wt_filt, 1, data, axis = 0), -int(np.round((len(wt_filt)-1)/2)), axis=0) for wt_filt in wt_filters])
+
+        wt_data =  np.dstack([data, wt_data]);
+
+        wt_data = wt_data / np.linalg.norm(wt_data, 2, axis=0, keepdims=True)
+
+        plt.plot(np.squeeze(wt_data[0:10000,2,:]))
+        plt.pause(10)
         
         this_scale = range_estimation( data, fs = ds_config['target_fs'])
         
