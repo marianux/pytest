@@ -75,6 +75,7 @@ def data_generator( datasets, batch_size, dg_sample_size):
 #            print('\nEntering:' + this_ds + '\n')
             train_ds = np.load(this_ds)[()]
             signals = train_ds['signals']
+            rel_extrema = train_ds['rel_extrema']
             cant_recordings = len(signals)
     
             # shuffle recordings
@@ -83,6 +84,7 @@ def data_generator( datasets, batch_size, dg_sample_size):
             for ii in rec_idx:
 
                 train_x = signals[ii]
+                train_extrema = rel_extrema[ii]
                 cant_samples = train_x.shape[0]
                 
                 sample_idx = np.random.choice(np.arange(2*dg_sample_size, cant_samples-2*dg_sample_size), batch_size, replace=False )
@@ -93,12 +95,13 @@ def data_generator( datasets, batch_size, dg_sample_size):
 #                xx = [ train_x[ jj-hwin_in_samp:jj+hwin_in_samp,:] for jj in tt ]
                 
                 xx = [ train_x[ jj-hwin_in_samp:jj+hwin_in_samp,:] for jj in sample_idx ]
+                rr = [ [ (train_extrema[ll][ np.logical_and(train_extrema[ll] > (jj-hwin_in_samp), train_extrema[ll] < (jj+hwin_in_samp))] - (jj-hwin_in_samp) ) for ll in range(len(train_extrema)) ] for jj in sample_idx ]
 
                 xx = np.stack(xx, axis=0)
 
                 # Get the samples you'll use in this batch
           
-                yield ( xx )
+                yield ( xx, rr )
 
 os.makedirs("images", exist_ok=True)
 
@@ -125,8 +128,8 @@ opt = parser.parse_args()
 print(opt)
 
 
-#cuda = True if torch.cuda.is_available() else False
-cuda = False
+cuda = True if torch.cuda.is_available() else False
+# cuda = False
 
 ecg_samp = 600
 k_ui16 = 2**15-1
@@ -305,7 +308,7 @@ def compute_gradient_penalty(D, real_samples, fake_samples):
     return gradient_penalty
 
 
-def plot_examples(fake_imgs, imgs):
+def plot_examples(fake_imgs, imgs, locations):
 
     fig = plt.figure(1)
     
@@ -315,22 +318,39 @@ def plot_examples(fake_imgs, imgs):
         
         plt.plot( np.squeeze(fake_imgs.data[0,:,ii].cpu().detach().numpy()), label = lead_names[ii] + 'gen' )
         plt.plot( np.squeeze(imgs[0,:,ii]), label = 'real' )
+        plt.plot( locations[0][ii],np.squeeze(fake_imgs.data[0,:,ii].cpu().detach().numpy())[locations[0][ii]], 'rx')
+        plt.plot( locations[0][ii],np.squeeze(imgs[0,:,ii])[locations[0][ii]], 'bo')
         plt.legend( )
         plt.title(lead_names[ii])
         
         fig.savefig("images/epoch_{:d}_{:s}.png".format(epoch, lead_names[ii]), dpi=150 )
 
 
+def calc_ecg_values( xx, tt ):
+
+    yy = [ [ xx[ii][samp_idx, jj] for (jj, samp_idx) in zip(range(len(tt[ii])), tt[ii]) ] for ii in range(xx.shape[0]) ]
+
+    return(yy)
+
+
+def my_mse_loss_func( xx, yy):
+
+    mse_loss_func = nn.MSELoss()
+
+    my_mse = torch.mean(torch.stack([ torch.mean(torch.stack([ mse_loss_func(xxx,yyy) for (xxx,yyy) in zip(xx[ii],yy[ii]) ])) for ii in range(len(xx)) ]))
+
+    return(my_mse)
 
 # ----------
 #  Training
 # ----------
 
+
 batches_done = 0
 for epoch in range(opt.n_epochs):
 #    for i, (imgs, _) in enumerate(dataloader):
 
-    imgs = next(train_generator)
+    (imgs, rr ) = next(train_generator)
     
     imgs = imgs / k_ui16
     imgs_z = imgs[:, :, leads_generator_idx]
@@ -380,7 +400,10 @@ for epoch in range(opt.n_epochs):
         # Loss measures generator's ability to fool the discriminator
         # Train on fake images
         fake_validity = discriminator(fake_imgs)
-        g_loss = -torch.mean(fake_validity)
+
+        mse_loss = my_mse_loss_func( calc_ecg_values(real_imgs, rr) , calc_ecg_values(fake_imgs, rr) )
+
+        g_loss = -torch.mean(fake_validity) + mse_loss
 
         g_loss.backward()
         optimizer_G.step()
@@ -392,7 +415,7 @@ for epoch in range(opt.n_epochs):
 
         if batches_done % opt.sample_interval == 0:
 
-            plot_examples(fake_imgs, imgs)
+            plot_examples(fake_imgs, imgs, rr)
             
         batches_done += opt.n_critic
 

@@ -27,6 +27,10 @@ import re
 import matplotlib.pyplot as plt
 
 from qs_filter_design import qs_filter_design
+from scipy.signal._peak_finding_utils import (
+    _select_by_peak_distance,
+)
+
 
 def get_records( db_path, db_name ):
 
@@ -181,6 +185,46 @@ def median_baseline_removal( x, fs):
     return( x - np.transpose(np.array([sig.medfilt(sig.medfilt(x[:,ii], my_int(win_size_short) ), my_int(win_size_long) ) for ii in range(x.shape[1]) ]))  )
 
 
+def zero_crossings( x ):
+
+    zero_crossings = np.where(np.diff(np.signbit(x)))[0]
+
+    return(zero_crossings)
+
+def if_not_empty(x):
+
+    if len(x) > 0:
+        return(x)
+    else:
+        return(np.nan)
+
+def keep_local_extrema(x, peaks, zero_crossings, distance):
+
+    zero_crossings = np.array(zero_crossings).reshape([len(zero_crossings),1])
+    zc = np.hstack([zero_crossings[0:-2], zero_crossings[1:-1], zero_crossings[2:]])
+    # zc = np.hstack([zero_crossings[0:-1], zero_crossings[1:]])
+
+    local_extrema_weight = np.array([ np.sum(np.abs( if_not_empty(x[peaks[ np.logical_and( peaks > zc[ii,0], peaks < zc[ii,2])]])  )) for ii in range(zc.shape[0]) ])
+
+    aux_idx = np.logical_not(np.isnan(local_extrema_weight)).nonzero()[0]
+    zc = zc[aux_idx,1]
+    local_extrema_weight = local_extrema_weight[aux_idx]
+
+    keep = _select_by_peak_distance(zc, local_extrema_weight, distance)
+    local_extrema = zc[keep]
+
+    return( local_extrema )
+
+def my_find_extrema( x, this_distance = None ):
+
+    peaks_p = [ sig.find_peaks(np.squeeze(x[:,jj]), distance = this_distance )[0]  for jj in range(x.shape[1]) ]
+    peaks_n = [ sig.find_peaks(-np.squeeze(x[:,jj]), distance = this_distance )[0]  for jj in range(x.shape[1]) ]
+    zeros = [ zero_crossings( np.squeeze(x[:,jj]) ) for jj in range(x.shape[1]) ]
+
+    my_extrema = [ keep_local_extrema(x[:,ii], np.sort( np.hstack([jj,kk])), ll, this_distance)  for (ii, jj, kk, ll) in zip(range(x.shape[1]), peaks_p, peaks_n, zeros ) ]
+
+    return(my_extrema)
+
 def make_dataset(records, data_path, ds_config, leads_x_rec = [], data_aumentation = 1, ds_name = 'none'):
 
 
@@ -197,6 +241,7 @@ def make_dataset(records, data_path, ds_config, leads_x_rec = [], data_aumentati
 #        start_beat_idx = ((np.array(records) == 'sddb/49').nonzero())[0][0]
     
     all_signals = []
+    all_extrema = []
     ds_part = 1
     cant_total_samples = []
     parts_samples = 0
@@ -209,7 +254,7 @@ def make_dataset(records, data_path, ds_config, leads_x_rec = [], data_aumentati
     [_, target_lead_idx, _] = np.intersect1d(default_lead_order, target_lead_names,  assume_unique=True, return_indices=True)
 
 
-    wt_filters = qs_filter_design( scales = np.arange(2,5), fs = ds_config['target_fs'] )
+    wt_filters = qs_filter_design( scales = np.arange(4,5), fs = ds_config['target_fs'] )
 
 #    for this_rec in records:
     for ii in np.arange(start_beat_idx, len(records)):
@@ -241,7 +286,7 @@ def make_dataset(records, data_path, ds_config, leads_x_rec = [], data_aumentati
         #recalculo el ratio real
         pq_ratio = resample_frac.numerator/ resample_frac.denominator
         data = sig.resample_poly(data, resample_frac.numerator, resample_frac.denominator )
-        ecg_header['n_sig'] = data.shape[0]
+        ecg_header['sig_len'] = data.shape[0]
             
         data = median_baseline_removal( data, fs = ds_config['target_fs'])
 # x_st = 200000; x_off = 10000; plt.plot(data[x_st:x_st+x_off,:]); plt.show()
@@ -249,13 +294,18 @@ def make_dataset(records, data_path, ds_config, leads_x_rec = [], data_aumentati
         # WT transform
         wt_data =  np.dstack([np.roll(sig.lfilter( wt_filt, 1, data, axis = 0), -int(np.round((len(wt_filt)-1)/2)), axis=0) for wt_filt in wt_filters])
 
-        wt_data =  np.dstack([data, wt_data]);
+        # wt_data =  np.dstack([data, wt_data]);
 
         wt_data = wt_data / np.linalg.norm(wt_data, 2, axis=0, keepdims=True)
 
-        plt.plot(np.squeeze(wt_data[0:10000,2,:]))
-        plt.pause(10)
-        
+        # plt.plot(np.squeeze(wt_data[0:10000,2,:]))
+        # plt.pause(10)
+
+        # calclulo los extremos relativos de mi señal en base a la wt4
+        rel_extrema = my_find_extrema( np.squeeze(wt_data[:,:]), this_distance = my_int(0.15*ds_config['target_fs']) )
+
+        # plt.figure(1); plt.clf(); jj = 1; plt.plot(np.squeeze(wt_data[0:10000,jj,:])); this_peaks = peaks[jj][peaks[jj] < 10000]; plt.plot(this_peaks, wt_data[this_peaks,jj,0], 'bx' ); plt.plot(this_peaks, wt_data[this_peaks,jj,1], 'ro' );  plt.pause(10)
+
         this_scale = range_estimation( data, fs = ds_config['target_fs'])
         
         k_conv = 0.6*(2**15-1);
@@ -264,6 +314,7 @@ def make_dataset(records, data_path, ds_config, leads_x_rec = [], data_aumentati
 #        plt.figure(1); plt.plot(data); plt.plot([0, data.shape[0]], [k_conv, k_conv], 'r:'); plt.plot([0, data.shape[0]], [-k_conv, -k_conv], 'r:'); this_axes = plt.gca(); this_axes.set_ylim([-(2**15-1), 2**15-1]); plt.show(1);
 
         all_signals += [data]
+        all_extrema += [rel_extrema]
         parts_samples += data.shape[0]
         parts_recordings += 1
 
@@ -276,6 +327,7 @@ def make_dataset(records, data_path, ds_config, leads_x_rec = [], data_aumentati
             cant_total_recordings += [parts_recordings]
              
             np.save( os.path.join( ds_config['dataset_path'], part_fn),  {'signals' : all_signals,
+                                                                          'rel_extrema' : all_extrema,
                                                                           'lead_names'  : default_lead_order})
             ds_part += 1
             all_signals = []
@@ -290,7 +342,7 @@ def make_dataset(records, data_path, ds_config, leads_x_rec = [], data_aumentati
         cant_total_samples += [parts_samples]
         cant_total_recordings += [parts_recordings]
              
-        np.save( os.path.join( ds_config['dataset_path'], part_fn),  {'signals' : all_signals,  'lead_names'  : default_lead_order , 'cant_total_samples' : cant_total_samples})
+        np.save( os.path.join( ds_config['dataset_path'], part_fn),  {'signals' : all_signals, 'rel_extrema' : all_extrema, 'lead_names'  : default_lead_order , 'cant_total_samples' : cant_total_samples})
         all_signals = []
         
         aux_df = DataFrame( { 'filename': ds_parts_fn, 
@@ -302,7 +354,7 @@ def make_dataset(records, data_path, ds_config, leads_x_rec = [], data_aumentati
         
         part_fn =  'ds_' + ds_name + '.npy'
         # unique part
-        np.save( os.path.join( ds_config['dataset_path'], part_fn),  {'signals' : all_signals,  'lead_names'  : default_lead_order , 'cant_total_samples' : cant_total_samples})
+        np.save( os.path.join( ds_config['dataset_path'], part_fn),  {'signals' : all_signals, 'rel_extrema' : all_extrema, 'lead_names'  : default_lead_order , 'cant_total_samples' : cant_total_samples})
 
         aux_df = DataFrame( { 'filename': [part_fn], 
                               'ds_samples': [parts_samples],
