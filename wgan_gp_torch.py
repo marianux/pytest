@@ -19,6 +19,7 @@ import torch.nn.functional as F
 import torch.autograd as autograd
 import torch
 
+
 def get_dataset_size(train_list_fn):
 
     train_samples = 0.0
@@ -74,6 +75,7 @@ def data_generator( datasets, batch_size, dg_sample_size):
 #            print('\nEntering:' + this_ds + '\n')
             train_ds = np.load(this_ds)[()]
             signals = train_ds['signals']
+            rel_extrema = train_ds['rel_extrema']
             cant_recordings = len(signals)
     
             # shuffle recordings
@@ -82,6 +84,7 @@ def data_generator( datasets, batch_size, dg_sample_size):
             for ii in rec_idx:
 
                 train_x = signals[ii]
+                train_extrema = rel_extrema[ii]
                 cant_samples = train_x.shape[0]
                 
                 sample_idx = np.random.choice(np.arange(2*dg_sample_size, cant_samples-2*dg_sample_size), batch_size, replace=False )
@@ -92,12 +95,13 @@ def data_generator( datasets, batch_size, dg_sample_size):
 #                xx = [ train_x[ jj-hwin_in_samp:jj+hwin_in_samp,:] for jj in tt ]
                 
                 xx = [ train_x[ jj-hwin_in_samp:jj+hwin_in_samp,:] for jj in sample_idx ]
+                rr = [ [ (train_extrema[ll][ np.logical_and(train_extrema[ll] > (jj-hwin_in_samp), train_extrema[ll] < (jj+hwin_in_samp))] - (jj-hwin_in_samp) ) for ll in range(len(train_extrema)) ] for jj in sample_idx ]
 
                 xx = np.stack(xx, axis=0)
 
                 # Get the samples you'll use in this batch
           
-                yield ( xx )
+                yield ( xx, rr )
 
 os.makedirs("images", exist_ok=True)
 
@@ -124,8 +128,8 @@ opt = parser.parse_args()
 print(opt)
 
 
-#cuda = True if torch.cuda.is_available() else False
-cuda = False
+cuda = True if torch.cuda.is_available() else False
+# cuda = False
 
 ecg_samp = 600
 k_ui16 = 2**15-1
@@ -141,6 +145,36 @@ train_generator = data_generator(train_paths, opt.batch_size, ecg_samp)
 
 imgz_shape = (ecg_samp, len(leads_generator_idx))
 img_shape = (ecg_samp, len(lead_names))
+
+
+
+class Generator_conv(nn.Module):
+    def __init__(self):
+        super(Generator, self).__init__()
+
+        self.init_size = opt.img_size // 4
+        self.l1 = nn.Sequential(nn.Linear(opt.latent_dim, 128 * self.init_size ** 2))
+
+        self.conv_blocks = nn.Sequential(
+            nn.BatchNorm2d(128),
+            nn.Upsample(scale_factor=2),
+            nn.Conv2d(128, 128, 3, stride=1, padding=1),
+            nn.ConvTranspose1d(128, 128, 3, stride=1, padding=1),
+            nn.BatchNorm2d(128, 0.8),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Upsample(scale_factor=2),
+            nn.Conv2d(128, 64, 3, stride=1, padding=1),
+            nn.BatchNorm2d(64, 0.8),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Conv2d(64, opt.channels, 3, stride=1, padding=1),
+            nn.Tanh(),
+        )
+
+    def forward(self, z):
+        out = self.l1(z)
+        out = out.view(out.shape[0], 128, self.init_size, self.init_size)
+        img = self.conv_blocks(out)
+        return img
 
 
 class Generator(nn.Module):
@@ -168,6 +202,35 @@ class Generator(nn.Module):
         img = self.model(z)
         img = img.view(img.shape[0], *img_shape)
         return img
+
+
+class Discriminator_conv(nn.Module):
+    def __init__(self):
+        super(Discriminator, self).__init__()
+
+        def discriminator_block(in_filters, out_filters, bn=True):
+            block = [nn.Conv2d(in_filters, out_filters, 3, 2, 1), nn.LeakyReLU(0.2, inplace=True), nn.Dropout2d(0.25)]
+            if bn:
+                block.append(nn.BatchNorm2d(out_filters, 0.8))
+            return block
+
+        self.model = nn.Sequential(
+            *discriminator_block(opt.channels, 16, bn=False),
+            *discriminator_block(16, 32),
+            *discriminator_block(32, 64),
+            *discriminator_block(64, 128),
+        )
+
+        # The height and width of downsampled image
+        ds_size = opt.img_size // 2 ** 4
+        self.adv_layer = nn.Sequential(nn.Linear(128 * ds_size ** 2, 1), nn.Sigmoid())
+
+    def forward(self, img):
+        out = self.model(img)
+        out = out.view(out.shape[0], -1)
+        validity = self.adv_layer(out)
+
+        return validity
 
 
 class Discriminator(nn.Module):
@@ -245,7 +308,7 @@ def compute_gradient_penalty(D, real_samples, fake_samples):
     return gradient_penalty
 
 
-def plot_examples(fake_imgs, imgs):
+def plot_examples(fake_imgs, imgs, locations):
 
     fig = plt.figure(1)
     
@@ -255,22 +318,39 @@ def plot_examples(fake_imgs, imgs):
         
         plt.plot( np.squeeze(fake_imgs.data[0,:,ii].cpu().detach().numpy()), label = lead_names[ii] + 'gen' )
         plt.plot( np.squeeze(imgs[0,:,ii]), label = 'real' )
+        plt.plot( locations[0][ii],np.squeeze(fake_imgs.data[0,:,ii].cpu().detach().numpy())[locations[0][ii]], 'rx')
+        plt.plot( locations[0][ii],np.squeeze(imgs[0,:,ii])[locations[0][ii]], 'bo')
         plt.legend( )
         plt.title(lead_names[ii])
         
         fig.savefig("images/epoch_{:d}_{:s}.png".format(epoch, lead_names[ii]), dpi=150 )
 
 
+def calc_ecg_values( xx, tt ):
+
+    yy = [ [ xx[ii][samp_idx, jj] for (jj, samp_idx) in zip(range(len(tt[ii])), tt[ii]) ] for ii in range(xx.shape[0]) ]
+
+    return(yy)
+
+
+def my_mse_loss_func( xx, yy):
+
+    mse_loss_func = nn.MSELoss()
+
+    my_mse = torch.mean(torch.stack([ torch.mean(torch.stack([ mse_loss_func(xxx,yyy) for (xxx,yyy) in zip(xx[ii],yy[ii]) ])) for ii in range(len(xx)) ]))
+
+    return(my_mse)
 
 # ----------
 #  Training
 # ----------
 
+
 batches_done = 0
 for epoch in range(opt.n_epochs):
 #    for i, (imgs, _) in enumerate(dataloader):
 
-    imgs = next(train_generator)
+    (imgs, rr ) = next(train_generator)
     
     imgs = imgs / k_ui16
     imgs_z = imgs[:, :, leads_generator_idx]
@@ -320,7 +400,10 @@ for epoch in range(opt.n_epochs):
         # Loss measures generator's ability to fool the discriminator
         # Train on fake images
         fake_validity = discriminator(fake_imgs)
-        g_loss = -torch.mean(fake_validity)
+
+        mse_loss = my_mse_loss_func( calc_ecg_values(real_imgs, rr) , calc_ecg_values(fake_imgs, rr) )
+
+        g_loss = -torch.mean(fake_validity) + mse_loss
 
         g_loss.backward()
         optimizer_G.step()
@@ -332,7 +415,7 @@ for epoch in range(opt.n_epochs):
 
         if batches_done % opt.sample_interval == 0:
 
-            plot_examples(fake_imgs, imgs)
+            plot_examples(fake_imgs, imgs, rr)
             
         batches_done += opt.n_critic
 
