@@ -404,13 +404,14 @@ class WaveGANDiscriminator(nn.Module):
         self.ps2 = PhaseShuffle(shift_factor, batch_shuffle=batch_shuffle)
         self.ps3 = PhaseShuffle(shift_factor, batch_shuffle=batch_shuffle)
         self.ps4 = PhaseShuffle(shift_factor, batch_shuffle=batch_shuffle)
-        self.fc1 = nn.Linear(16 * 2 * model_size, 1)
+        self.fc1 = nn.Linear(16 * model_size, 1)
 
         for m in self.modules():
             if isinstance(m, nn.Conv1d) or isinstance(m, nn.Linear):
                 nn.init.kaiming_normal_(m.weight.data)
 
     def forward(self, x):
+        
         x = F.leaky_relu(self.conv1(x), negative_slope=self.alpha)
         if self.verbose:
             print(x.shape)
@@ -435,7 +436,7 @@ class WaveGANDiscriminator(nn.Module):
         if self.verbose:
             print(x.shape)
 
-        x = x.view(-1, 16 * 2 * self.model_size)
+        x = x.view(-1, 16 * self.model_size)
         if self.verbose:
             print(x.shape)
 
@@ -483,7 +484,7 @@ class Generator(nn.Module):
 
     def forward(self, z):
         img = self.model(z)
-        img = img.view(img.shape[0], *img_shape)
+        img = img.view(img.shape[0], *(ecg_leads_out, ecg_samp))
         return img
 
 
@@ -606,7 +607,7 @@ bVerbose = False
 #bVerbose = True
 
 generator = WaveGANGenerator(model_size=64, ngpus=1, num_channels=ecg_leads_out, verbose=bVerbose, 
-                             latent_dim=int(np.prod(imgz_shape)), post_proc_filt_len=512, upsample=False)
+                              latent_dim=int(np.prod(imgz_shape)), post_proc_filt_len=512, upsample=False)
 
 discriminator = WaveGANDiscriminator( model_size=64, ngpus=1, num_channels=ecg_leads_out, verbose=bVerbose, 
                                       shift_factor=2, alpha=0.2, batch_shuffle=False)
