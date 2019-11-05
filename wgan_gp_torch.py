@@ -132,7 +132,7 @@ print(opt)
 cuda = True if torch.cuda.is_available() else False
 # cuda = False
 
-ecg_samp = 2048
+ecg_samp = 1024
 k_ui16 = 2**15-1
 leads_generator_idx = [1, 2]
 
@@ -429,7 +429,7 @@ class WaveGANDiscriminator(nn.Module):
         x = F.leaky_relu(self.conv4(x), negative_slope=self.alpha)
         if self.verbose:
             print(x.shape)
-        x = self.ps4(x)
+        # x = self.ps4(x)
 
         x = F.leaky_relu(self.conv5(x), negative_slope=self.alpha)
         if self.verbose:
@@ -439,7 +439,7 @@ class WaveGANDiscriminator(nn.Module):
         if self.verbose:
             print(x.shape)
 
-        return F.sigmoid(self.fc1(x))
+        return torch.sigmoid(self.fc1(x))
 
 
 
@@ -565,10 +565,15 @@ def plot_examples(fake_imgs, imgs, locations):
         
         plt.cla()
         
-        plt.plot( np.squeeze(fake_imgs.data[0,:,ii].cpu().detach().numpy()), label = lead_names[ii] + 'gen' )
-        plt.plot( np.squeeze(imgs[0,:,ii]), label = 'real' )
-        plt.plot( locations[0][ii],np.squeeze(fake_imgs.data[0,:,ii].cpu().detach().numpy())[locations[0][ii]], 'rx')
-        plt.plot( locations[0][ii],np.squeeze(imgs[0,:,ii])[locations[0][ii]], 'bo')
+        # plt.plot( np.squeeze(fake_imgs.data[0,:,ii].cpu().detach().numpy()), label = lead_names[ii] + 'gen' )
+        # plt.plot( np.squeeze(imgs[0,:,ii]), label = 'real' )
+        # plt.plot( locations[0][ii],np.squeeze(fake_imgs.data[0,:,ii].cpu().detach().numpy())[locations[0][ii]], 'rx')
+        # plt.plot( locations[0][ii],np.squeeze(imgs[0,:,ii])[locations[0][ii]], 'bo')
+
+        plt.plot( np.squeeze(fake_imgs.data[0,ii,:].cpu().detach().numpy()), label = lead_names[ii] + 'gen' )
+        plt.plot( np.squeeze(imgs[0,ii,:]), label = 'real' )
+        plt.plot( locations[0][ii],np.squeeze(fake_imgs.data[0,ii,:].cpu().detach().numpy())[locations[0][ii]], 'rx')
+        plt.plot( locations[0][ii],np.squeeze(imgs[0,ii,:])[locations[0][ii]], 'bo')
         plt.legend( )
         plt.title(lead_names[ii])
         
@@ -577,7 +582,8 @@ def plot_examples(fake_imgs, imgs, locations):
 
 def calc_ecg_values( xx, tt ):
 
-    yy = [ [ xx[ii][samp_idx, jj] for (jj, samp_idx) in zip(range(len(tt[ii])), tt[ii]) ] for ii in range(xx.shape[0]) ]
+    # yy = [ [ xx[ii][samp_idx, jj] for (jj, samp_idx) in zip(range(len(tt[ii])), tt[ii]) ] for ii in range(xx.shape[0]) ]
+    yy = [ [ xx[ii][jj, samp_idx] for (jj, samp_idx) in zip(range(len(tt[ii])), tt[ii]) ] for ii in range(xx.shape[0]) ]
 
     return(yy)
 
@@ -596,8 +602,8 @@ lambda_gp = 10
 
 
 # Initialize generator and discriminator
-# bVerbose = False
-bVerbose = True
+bVerbose = False
+#bVerbose = True
 
 generator = WaveGANGenerator(model_size=64, ngpus=1, num_channels=ecg_leads_out, verbose=bVerbose, 
                              latent_dim=int(np.prod(imgz_shape)), post_proc_filt_len=512, upsample=False)
