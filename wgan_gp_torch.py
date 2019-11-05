@@ -132,7 +132,7 @@ print(opt)
 cuda = True if torch.cuda.is_available() else False
 # cuda = False
 
-ecg_samp = 1024
+ecg_samp = 512
 k_ui16 = 2**15-1
 leads_generator_idx = [1, 2]
 
@@ -213,11 +213,12 @@ class WaveGANGenerator(nn.Module):
             
             this_in = this_out
             this_out =  int(this_in / 2)
-            self.tconv4 = nn.ConvTranspose1d(this_in, this_out, 25, stride=4, padding=11, output_padding=1)
+            # self.tconv4 = nn.ConvTranspose1d(this_in, this_out, 25, stride=4, padding=11, output_padding=1)
+            self.tconv4 = nn.ConvTranspose1d(this_in, num_channels, 25, stride=4, padding=11, output_padding=1)
             
-            this_in = this_out
-            this_out =  int(this_in / 2)
-            self.tconv5 = nn.ConvTranspose1d(this_in, num_channels, 25, stride=4, padding=11, output_padding=1)
+            # this_in = this_out
+            # this_out =  int(this_in / 2)
+            # self.tconv5 = nn.ConvTranspose1d(this_in, num_channels, 25, stride=4, padding=11, output_padding=1)
 
         if post_proc_filt_len:
             self.ppfilter1 = nn.Conv1d(num_channels, num_channels, post_proc_filt_len)
@@ -275,7 +276,8 @@ class WaveGANGenerator(nn.Module):
             if self.verbose:
                 print(x.shape)
 
-            output = torch.tanh(self.tconv5(x))
+            # output = torch.tanh(self.tconv5(x))
+            output = torch.tanh(x)
             
         if self.verbose:
             print(output.shape)
@@ -399,7 +401,7 @@ class WaveGANDiscriminator(nn.Module):
         self.conv2 = nn.Conv1d(model_size, 2 * model_size, 25, stride=4, padding=11)
         self.conv3 = nn.Conv1d(2 * model_size, 4 * model_size, 25, stride=4, padding=11)
         self.conv4 = nn.Conv1d(4 * model_size, 8 * model_size, 25, stride=4, padding=11)
-        self.conv5 = nn.Conv1d(8 * model_size, 16 * model_size, 25, stride=4, padding=11)
+        # self.conv5 = nn.Conv1d(8 * model_size, 16 * model_size, 25, stride=4, padding=11)
         self.ps1 = PhaseShuffle(shift_factor, batch_shuffle=batch_shuffle)
         self.ps2 = PhaseShuffle(shift_factor, batch_shuffle=batch_shuffle)
         self.ps3 = PhaseShuffle(shift_factor, batch_shuffle=batch_shuffle)
@@ -432,7 +434,7 @@ class WaveGANDiscriminator(nn.Module):
             print(x.shape)
         # x = self.ps4(x)
 
-        x = F.leaky_relu(self.conv5(x), negative_slope=self.alpha)
+        # x = F.leaky_relu(self.conv5(x), negative_slope=self.alpha)
         if self.verbose:
             print(x.shape)
 
@@ -604,7 +606,7 @@ lambda_gp = 10
 
 # Initialize generator and discriminator
 bVerbose = False
-#bVerbose = True
+# bVerbose = True
 
 generator = WaveGANGenerator(model_size=64, ngpus=1, num_channels=ecg_leads_out, verbose=bVerbose, 
                               latent_dim=int(np.prod(imgz_shape)), post_proc_filt_len=512, upsample=False)
