@@ -105,6 +105,7 @@ def data_generator( datasets, batch_size, dg_sample_size):
                 yield ( xx, rr )
 
 os.makedirs("images", exist_ok=True)
+os.makedirs("models", exist_ok=True)
 
 parser = argparse.ArgumentParser()
 
@@ -653,6 +654,8 @@ Tensor = torch.cuda.FloatTensor if cuda else torch.FloatTensor
 
 
 batches_done = 0
+losses = [0.0, 0.0]
+
 for epoch in range(opt.n_epochs):
 #    for i, (imgs, _) in enumerate(dataloader):
 
@@ -719,10 +722,30 @@ for epoch in range(opt.n_epochs):
             "[Epoch %d/%d] [D loss: %f] [G loss: %f]"
             % (epoch, opt.n_epochs, d_loss.item(), g_loss.item())
         )
-
+        
+        losses = np.vstack(( losses, ( d_loss.item(), g_loss.item())) )
+        
         if batches_done % opt.sample_interval == 0:
 
             plot_examples(fake_imgs, imgs, rr)
             
         batches_done += opt.n_critic
+
+    if batches_done % (2 * opt.sample_interval) == 0:
+        
+        fig = plt.figure(1)
+        
+        plt.cla()
+            
+        plt.plot( np.vstack(losses)[1:,0], label = 'disc' )
+        plt.plot( np.vstack(losses)[1:,1], label = 'gen' )
+        plt.legend( )
+        plt.title('Losses')
+        
+        fig.savefig("images/losses.png", dpi=150 )
+        
+        torch.save(generator.state_dict(), "models/generator_{:f}_{:d}.png".format(opt.lr, epoch))
+        torch.save(generator.state_dict(), "models/discriminator_{:f}_{:d}.png".format(opt.lr, epoch))
+
+
 
