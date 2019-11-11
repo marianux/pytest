@@ -729,20 +729,20 @@ for epoch in range(opt.n_epochs):
 
             plot_examples(fake_imgs, imgs, rr)
             
+            fig = plt.figure(1)
+            
+            plt.cla()
+                
+            plt.plot( np.vstack(losses)[1:,0], label = 'disc' )
+            plt.plot( np.vstack(losses)[1:,1], label = 'gen' )
+            plt.legend( )
+            plt.title('Losses')
+            
+            fig.savefig("images/losses.png", dpi=150 )
+            
         batches_done += opt.n_critic
 
     if epoch % (30 * opt.sample_interval) == 0:
-        
-        fig = plt.figure(1)
-        
-        plt.cla()
-            
-        plt.plot( np.vstack(losses)[1:,0], label = 'disc' )
-        plt.plot( np.vstack(losses)[1:,1], label = 'gen' )
-        plt.legend( )
-        plt.title('Losses')
-        
-        fig.savefig("images/losses.png", dpi=150 )
 
         this_backup = "images/{:d}".format(epoch)
         os.makedirs(this_backup, exist_ok=True)  
