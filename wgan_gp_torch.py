@@ -731,7 +731,7 @@ for epoch in range(opt.n_epochs):
             
         batches_done += opt.n_critic
 
-    if batches_done % (2 * opt.sample_interval) == 0:
+    if epoch % (30 * opt.sample_interval) == 0:
         
         fig = plt.figure(1)
         
@@ -743,9 +743,16 @@ for epoch in range(opt.n_epochs):
         plt.title('Losses')
         
         fig.savefig("images/losses.png", dpi=150 )
+
+        this_backup = "images/{:d}".format(epoch)
+        os.makedirs(this_backup, exist_ok=True)  
+
+        os.system('mv images/epoch_*.png {:s}'.format(this_backup) )
         
-        torch.save(generator.state_dict(), "models/generator_{:f}_{:d}.png".format(opt.lr, epoch))
-        torch.save(generator.state_dict(), "models/discriminator_{:f}_{:d}.png".format(opt.lr, epoch))
+    if epoch % (100 * opt.sample_interval) == 0:
+        
+        torch.save(generator.state_dict(), "models/generator_{:f}_{:d}.trc".format(opt.lr, epoch))
+        torch.save(generator.state_dict(), "models/discriminator_{:f}_{:d}.trc".format(opt.lr, epoch))
 
 
-
+# python wgan_gp_torch.py --train_list /media/datasets/gan_tests/train_size.txt --n_epochs 10000000 --batch_size 32 --lr 0.0001 --sample_interval 10
