@@ -126,6 +126,8 @@ parser.add_argument("--channels", type=int, default=1, help="number of image cha
 parser.add_argument("--n_critic", type=int, default=5, help="number of training steps for discriminator per iter")
 parser.add_argument("--clip_value", type=float, default=0.01, help="lower and upper clip value for disc. weights")
 parser.add_argument("--sample_interval", type=int, default=100, help="interval betwen image samples")
+parser.add_argument("--restore_epoch", type=int, default=0, help="Epoch to restore from a saved model")
+parser.add_argument("--restore_lr", type=int, default=0, help="Epoch to restore from a saved model")
 opt = parser.parse_args()
 print(opt)
 
@@ -645,8 +647,16 @@ optimizer_D = torch.optim.Adam(discriminator.parameters(), lr=opt.lr, betas=(opt
 
 Tensor = torch.cuda.FloatTensor if cuda else torch.FloatTensor
 
+if( opt.restore_epoch > 0 ):
+    
+    if( opt.restore_lr == 0 ):
+        # same value        
+        opt.restore_lr = opt.lr 
 
+    generator.load_state_dict( torch.load("models/generator_{:f}_{:d}.trc".format(opt.restore_lr, opt.restore_epoch)) )
+    discriminator.load_state_dict( torch.load("models/discriminator_{:f}_{:d}.trc".format(opt.restore_lr, opt.restore_epoch)) )
 
+    print( 'Model restored @ epoch {:d} - lr:{:f}'.format(opt.restore_epoch, opt.restore_lr) )
 
 # ----------
 #  Training
@@ -752,7 +762,7 @@ for epoch in range(opt.n_epochs):
     if epoch % (100 * opt.sample_interval) == 0:
         
         torch.save(generator.state_dict(), "models/generator_{:f}_{:d}.trc".format(opt.lr, epoch))
-        torch.save(generator.state_dict(), "models/discriminator_{:f}_{:d}.trc".format(opt.lr, epoch))
+        torch.save(discriminator.state_dict(), "models/discriminator_{:f}_{:d}.trc".format(opt.lr, epoch))
 
 
 # python wgan_gp_torch.py --train_list /media/datasets/gan_tests/train_size.txt --n_epochs 10000000 --batch_size 32 --lr 0.0001 --sample_interval 10
