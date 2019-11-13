@@ -127,7 +127,7 @@ parser.add_argument("--n_critic", type=int, default=5, help="number of training 
 parser.add_argument("--clip_value", type=float, default=0.01, help="lower and upper clip value for disc. weights")
 parser.add_argument("--sample_interval", type=int, default=100, help="interval betwen image samples")
 parser.add_argument("--restore_epoch", type=int, default=0, help="Epoch to restore from a saved model")
-parser.add_argument("--restore_lr", type=int, default=0, help="Epoch to restore from a saved model")
+parser.add_argument("--restore_lr", type=float, default=0, help="Epoch to restore from a saved model")
 opt = parser.parse_args()
 print(opt)
 
@@ -654,7 +654,7 @@ if( opt.restore_epoch > 0 ):
         opt.restore_lr = opt.lr 
 
     generator.load_state_dict( torch.load("models/generator_{:f}_{:d}.trc".format(opt.restore_lr, opt.restore_epoch)) )
-    discriminator.load_state_dict( torch.load("models/discriminator_{:f}_{:d}.trc".format(opt.restore_lr, opt.restore_epoch)) )
+    # discriminator.load_state_dict( torch.load("models/discriminator_{:f}_{:d}.trc".format(opt.restore_lr, opt.restore_epoch)) )
 
     print( 'Model restored @ epoch {:d} - lr:{:f}'.format(opt.restore_epoch, opt.restore_lr) )
 
@@ -664,9 +664,9 @@ if( opt.restore_epoch > 0 ):
 
 
 batches_done = 0
-losses = [0.0, 0.0]
+losses = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 
-for epoch in range(opt.n_epochs):
+for epoch in range(opt.restore_epoch, opt.n_epochs):
 #    for i, (imgs, _) in enumerate(dataloader):
 
     (imgs, rr ) = next(train_generator)
@@ -729,11 +729,11 @@ for epoch in range(opt.n_epochs):
         optimizer_G.step()
 
         print(
-            "[Epoch %d/%d] [D loss: %f] [G loss: %f]"
-            % (epoch, opt.n_epochs, d_loss.item(), g_loss.item())
+            "[Epoch %d/%d] [D loss: %f] [Real val: %f] [Fake val: %f] [Lambda val: %f] || [G loss: %f] [MSE loss: %f]"
+            % (epoch, opt.n_epochs, d_loss.item(), -torch.mean(real_validity), torch.mean(fake_validity), lambda_gp * gradient_penalty, g_loss.item(), mse_loss, )
         )
         
-        losses = np.vstack(( losses, ( d_loss.item(), g_loss.item())) )
+        losses = np.vstack(( losses, ( epoch, d_loss.item(), -torch.mean(fake_validity), mse_loss, -torch.mean(real_validity), torch.mean(fake_validity),  lambda_gp * gradient_penalty )) )
         
         if batches_done % opt.sample_interval == 0:
 
@@ -743,9 +743,11 @@ for epoch in range(opt.n_epochs):
             
             plt.cla()
                 
-            plt.plot( np.vstack(losses)[1:,0], label = 'disc' )
-            plt.plot( np.vstack(losses)[1:,1], label = 'gen' )
+            plt.plot( np.vstack(losses)[1:,0], np.vstack(losses)[1:,1], label = 'disc' )
+            plt.plot( np.vstack(losses)[1:,0], np.vstack(losses)[1:,2], label = 'gen' )
+            plt.plot( np.vstack(losses)[1:,0], np.vstack(losses)[1:,3], label = 'mse' )
             plt.legend( )
+            plt.xlabel('epochs')
             plt.title('Losses')
             
             fig.savefig("images/losses.png", dpi=150 )
