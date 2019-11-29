@@ -204,14 +204,30 @@ def keep_local_extrema(x, peaks, zero_crossings, distance):
     zc = np.hstack([zero_crossings[0:-2], zero_crossings[1:-1], zero_crossings[2:]])
     # zc = np.hstack([zero_crossings[0:-1], zero_crossings[1:]])
 
+    # pesamos cada cruce por cero de acuerdo a los máximos circundantes.
     local_extrema_weight = np.array([ np.sum(np.abs( if_not_empty(x[peaks[ np.logical_and( peaks > zc[ii,0], peaks < zc[ii,2])]])  )) for ii in range(zc.shape[0]) ])
 
     aux_idx = np.logical_not(np.isnan(local_extrema_weight)).nonzero()[0]
     zc = zc[aux_idx,1]
     local_extrema_weight = local_extrema_weight[aux_idx]
 
-    keep = _select_by_peak_distance(zc, local_extrema_weight, distance)
-    local_extrema = zc[keep]
+    this_step = my_int(1*ds_config['target_fs'])
+    aux_idx = [ np.logical_and( jj <= zc, jj+this_step > zc).nonzero()  for jj in np.arange(0, x.shape[0], this_step//2) ]
+    aux_idx2 = [np.argsort(local_extrema_weight[jj])[-7:] for jj in aux_idx ]
+    aux_idx3 = [local_extrema_weight[jj] for jj in aux_idx2 ]
+    zc_r, aux_idx4 = np.unique( np.vstack([ zc[jj[0][kk]] for (jj,kk) in zip(aux_idx,aux_idx2) ]), return_index=True )
+    local_extrema_weight_r = np.vstack(aux_idx3).flatten()[aux_idx4]
+
+
+# plt.figure(2); t_range=(10e3, 20e3); plt.clf(); plt.plot( np.arange(t_range[0], t_range[1]), x[int(t_range[0]):int(t_range[1])]); this_peaks = zc_r[ np.logical_and( zc_r > t_range[0],  zc_r < t_range[1] )]; plt.plot(this_peaks, x[this_peaks], 'ro' );  plt.pause(10)
+
+
+    # filtramos cruces por cero muy próximos.
+    if distance is None:
+        local_extrema = zc_r
+    else:
+        keep = _select_by_peak_distance(zc_r, local_extrema_weight_r, distance)
+        local_extrema = zc_r[keep]
 
     return( local_extrema )
 
@@ -221,6 +237,7 @@ def my_find_extrema( x, this_distance = None ):
     peaks_n = [ sig.find_peaks(-np.squeeze(x[:,jj]), distance = this_distance )[0]  for jj in range(x.shape[1]) ]
     zeros = [ zero_crossings( np.squeeze(x[:,jj]) ) for jj in range(x.shape[1]) ]
 
+    # a partir de los picos y cruces, me quedo con los cruces más importantes.
     my_extrema = [ keep_local_extrema(x[:,ii], np.sort( np.hstack([jj,kk])), ll, this_distance)  for (ii, jj, kk, ll) in zip(range(x.shape[1]), peaks_p, peaks_n, zeros ) ]
 
     return(my_extrema)
@@ -254,7 +271,7 @@ def make_dataset(records, data_path, ds_config, leads_x_rec = [], data_aumentati
     [_, target_lead_idx, _] = np.intersect1d(default_lead_order, target_lead_names,  assume_unique=True, return_indices=True)
 
 
-    wt_filters = qs_filter_design( scales = np.arange(4,5), fs = ds_config['target_fs'] )
+    wt_filters = qs_filter_design( scales = np.arange(3,5), fs = ds_config['target_fs'] )
 
 #    for this_rec in records:
     for ii in np.arange(start_beat_idx, len(records)):
@@ -302,9 +319,18 @@ def make_dataset(records, data_path, ds_config, leads_x_rec = [], data_aumentati
         # plt.pause(10)
 
         # calclulo los extremos relativos de mi señal en base a la wt4
-        rel_extrema = my_find_extrema( np.squeeze(wt_data[:,:]), this_distance = my_int(0.15*ds_config['target_fs']) )
+        this_distance = my_int(0.1*ds_config['target_fs'])
+        # rel_extrema = my_find_extrema( np.squeeze(wt_data[:,:]), this_distance = this_distance )
+        rel_extrema = my_find_extrema( np.squeeze(wt_data[:,:, 1]) )
+        rel_extrema = [ my_find_extrema( np.squeeze(wt_data[:,:, jj]) ) for jj in range(wt_data.shape[2])]
 
-        # plt.figure(1); plt.clf(); jj = 1; plt.plot(np.squeeze(wt_data[0:10000,jj,:])); this_peaks = peaks[jj][peaks[jj] < 10000]; plt.plot(this_peaks, wt_data[this_peaks,jj,0], 'bx' ); plt.plot(this_peaks, wt_data[this_peaks,jj,1], 'ro' );  plt.pause(10)
+        # half_distance = this_distance // 2
+        # rel_extrema_r = [ np.array([ kk-half_distance+np.argmax( np.abs(data[ np.max([0, kk-half_distance]):np.min([data.shape[0],kk+half_distance]), jj ]) ) for kk in rel_extrema[jj] ]) for jj in range(ecg_header['n_sig']) ]
+        # rel_extrema_r = [ np.unique(rel_extrema_r[jj]) for jj in range(ecg_header['n_sig']) ]
+
+
+        # plt.figure(1); t_range=(10e3, 20e3); plt.clf(); jj = 1; plt.plot( np.arange(t_range[0], t_range[1]), np.squeeze(wt_data[int(t_range[0]):int(t_range[1]),jj,:])); this_peaks = rel_extrema[jj][ np.logical_and( rel_extrema[jj] > t_range[0],  rel_extrema[jj] < t_range[1] )]; plt.plot(this_peaks, wt_data[this_peaks,jj,0], 'bx' ); plt.plot(this_peaks, wt_data[this_peaks,jj,0], 'ro' );  plt.pause(10)
+        # plt.figure(1); t_range=(10e3, 20e3); plt.clf(); jj = 3; plt.plot( np.arange(t_range[0], t_range[1]), data[int(t_range[0]):int(t_range[1]),jj]); this_peaks = rel_extrema[jj][ np.logical_and( rel_extrema[jj] > t_range[0],  rel_extrema[jj] < t_range[1] )]; plt.plot(this_peaks, data[this_peaks,jj], 'bx' ); plt.plot(this_peaks, data[this_peaks,jj], 'ro' );  plt.pause(10)
 
         this_scale = range_estimation( data, fs = ds_config['target_fs'])
         
