@@ -25,6 +25,9 @@ from scipy import signal as sig
 import argparse as ap
 import re
 import matplotlib.pyplot as plt
+import pdb
+
+
 
 from qs_filter_design import qs_filter_design
 from scipy.signal._peak_finding_utils import (
@@ -211,11 +214,22 @@ def keep_local_extrema(x, peaks, zero_crossings, distance):
     zc = zc[aux_idx,1]
     local_extrema_weight = local_extrema_weight[aux_idx]
 
+    extrema_keep = 7
     this_step = my_int(1*ds_config['target_fs'])
     aux_idx = [ np.logical_and( jj <= zc, jj+this_step > zc).nonzero()  for jj in np.arange(0, x.shape[0], this_step//2) ]
-    aux_idx2 = [np.argsort(local_extrema_weight[jj])[-7:] for jj in aux_idx ]
+    aux_idx2 = [ np.argsort(local_extrema_weight[jj])[-extrema_keep:] for jj in aux_idx ]
+    # pad to extrema_keep length
+    aux_idx2 = [ np.concatenate( [jj, [jj[-1]]*(extrema_keep - len(jj))]).astype(np.int) for jj in aux_idx2 ]
+    
+    # try:
+    #     aux_idx3 = [local_extrema_weight[jj] for jj in aux_idx2 ]
+    #     zc_r, aux_idx4 = np.unique( np.vstack([ zc[jj[0][kk]] for (jj,kk) in zip(aux_idx,aux_idx2) ]), return_index=True )
+    # except:
+    #     pdb.set_trace()
+    
     aux_idx3 = [local_extrema_weight[jj] for jj in aux_idx2 ]
     zc_r, aux_idx4 = np.unique( np.vstack([ zc[jj[0][kk]] for (jj,kk) in zip(aux_idx,aux_idx2) ]), return_index=True )
+        
     local_extrema_weight_r = np.vstack(aux_idx3).flatten()[aux_idx4]
 
 
@@ -271,7 +285,7 @@ def make_dataset(records, data_path, ds_config, leads_x_rec = [], data_aumentati
     [_, target_lead_idx, _] = np.intersect1d(default_lead_order, target_lead_names,  assume_unique=True, return_indices=True)
 
 
-    wt_filters = qs_filter_design( scales = np.arange(3,5), fs = ds_config['target_fs'] )
+    wt_filters = qs_filter_design( scales = np.arange(3,4), fs = ds_config['target_fs'] )
 
 #    for this_rec in records:
     for ii in np.arange(start_beat_idx, len(records)):
@@ -321,8 +335,8 @@ def make_dataset(records, data_path, ds_config, leads_x_rec = [], data_aumentati
         # calclulo los extremos relativos de mi señal en base a la wt4
         this_distance = my_int(0.1*ds_config['target_fs'])
         # rel_extrema = my_find_extrema( np.squeeze(wt_data[:,:]), this_distance = this_distance )
-        rel_extrema = my_find_extrema( np.squeeze(wt_data[:,:, 1]) )
-        rel_extrema = [ my_find_extrema( np.squeeze(wt_data[:,:, jj]) ) for jj in range(wt_data.shape[2])]
+        rel_extrema = my_find_extrema( np.squeeze(wt_data) )
+        # rel_extrema = [ my_find_extrema( np.squeeze(wt_data[:,:, jj]) ) for jj in range(wt_data.shape[2])]
 
         # half_distance = this_distance // 2
         # rel_extrema_r = [ np.array([ kk-half_distance+np.argmax( np.abs(data[ np.max([0, kk-half_distance]):np.min([data.shape[0],kk+half_distance]), jj ]) ) for kk in rel_extrema[jj] ]) for jj in range(ecg_header['n_sig']) ]
