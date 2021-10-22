@@ -218,8 +218,12 @@ def keep_local_extrema(x, peaks, zero_crossings, distance):
     this_step = my_int(1*ds_config['target_fs'])
     aux_idx = [ np.logical_and( jj <= zc, jj+this_step > zc).nonzero()  for jj in np.arange(0, x.shape[0], this_step//2) ]
     aux_idx2 = [ np.argsort(local_extrema_weight[jj])[-extrema_keep:] for jj in aux_idx ]
-    # pad to extrema_keep length
-    aux_idx2 = [ np.concatenate( [jj, [jj[-1]]*(extrema_keep - len(jj))]).astype(np.int) for jj in aux_idx2 ]
+
+    try:
+        # pad to extrema_keep length
+        aux_idx2 = [ np.concatenate( [jj, [jj[-1]]*(extrema_keep - len(jj))]).astype(np.int) for jj in aux_idx2 ]
+    except:
+        pdb.set_trace()
     
     # try:
     #     aux_idx3 = [local_extrema_weight[jj] for jj in aux_idx2 ]

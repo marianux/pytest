@@ -18,6 +18,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.autograd as autograd
 import torch
+from scipy.signal import welch, csd
+
+
 
 def get_dataset_size(train_list_fn):
 
@@ -592,6 +595,25 @@ def calc_ecg_values( xx, tt ):
 
     return(yy)
 
+def calc_ecg_psd_values( xx ):
+
+    cant_peaks = 10
+    psd_mat = np.zeros((xx.shape[1], xx.shape[1], cant_peaks))
+    
+    for ii in range(xx.shape[0]):
+        
+        for jj in range(xx.shape[0]):
+        
+            this_sig = xx[ii].numpy()
+            
+            this_psd
+        
+        
+        
+    yy = [ [ xx[ii][jj, samp_idx] for (jj, samp_idx) in zip(range(len(tt[ii])), tt[ii]) ]  ]
+
+    return(yy)
+
 
 def my_mse_loss_func( xx, yy):
 
@@ -732,6 +754,8 @@ for epoch in range(opt.restore_epoch, opt.n_epochs):
         fake_validity = discriminator(fake_imgs)
 
         mse_loss = my_mse_loss_func( calc_ecg_values(real_imgs, rr) , calc_ecg_values(fake_imgs, rr) )
+        
+        mse_loss_psd = my_mse_loss_func( calc_ecg_psd_values(real_imgs) , calc_ecg_psd_values(fake_imgs) )
 
         g_loss = -torch.mean(fake_validity) + mse_loss
 
